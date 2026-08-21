@@ -42,6 +42,11 @@ static void check(BOOL condition, const char *label) {
 @property(nonatomic, copy) NSString *committed;
 @property(nonatomic) NSRange markedSelection;
 @property(nonatomic) BOOL markedIsUnderlined;
+// Enough of a document model to exercise reconversion: the text already in the
+// client, what is selected, and the replacement range Ari asks for.
+@property(nonatomic, copy) NSString *documentText;
+@property(nonatomic) NSRange selectedRange;
+@property(nonatomic) NSRange lastMarkedReplacement;
 @end
 
 @implementation FakeClient
@@ -50,6 +55,9 @@ static void check(BOOL condition, const char *label) {
     self = [super init];
     _markedText = @"";
     _committed = @"";
+    _documentText = @"";
+    _selectedRange = NSMakeRange(NSNotFound, 0);
+    _lastMarkedReplacement = NSMakeRange(NSNotFound, 0);
     return self;
 }
 
@@ -62,10 +70,18 @@ static void check(BOOL condition, const char *label) {
     _markedText = @"";
 }
 
+- (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
+    if (NSMaxRange(range) > _documentText.length) {
+        return nil;
+    }
+    return [[NSAttributedString alloc]
+        initWithString:[_documentText substringWithRange:range]];
+}
+
 - (void)setMarkedText:(id)string
        selectionRange:(NSRange)selectionRange
      replacementRange:(NSRange)replacementRange {
-    (void)replacementRange;
+    _lastMarkedReplacement = replacementRange;
     _markedIsUnderlined = NO;
     if ([string isKindOfClass:NSAttributedString.class]) {
         NSAttributedString *attributed = string;
@@ -249,6 +265,64 @@ int main() {
             checkEq(s.client.markedText, @"你!", "shift+1 gives a literal !");
             s.type(@"@#");
             checkEq(s.client.markedText, @"你!@#", "shifted symbols stay literal");
+        }
+
+        { // ⌘V pastes into the pre-edit while composing...
+            Session s;
+            [NSPasteboard.generalPasteboard clearContents];
+            [NSPasteboard.generalPasteboard setString:@"ABC"
+                                              forType:NSPasteboardTypeString];
+            s.type(@"su3");
+            check(s.send(kVK_ANSI_V, @"v", NSEventModifierFlagCommand),
+                  "cmd+V is handled while composing");
+            checkEq(s.client.markedText, @"你ABC", "pasted text joins the preedit");
+        }
+
+        { // ...and is left to the application when there is nothing to paste into.
+            Session s;
+            check(!s.send(kVK_ANSI_V, @"v", NSEventModifierFlagCommand),
+                  "cmd+V passes through with no composition");
+        }
+
+        { // ⌃⌥R reopens a committed Chinese selection for candidate editing.
+            Session s;
+            s.client.documentText = @"測試";
+            s.client.selectedRange = NSMakeRange(0, 2);
+            check(s.send(kVK_ANSI_R, @"r",
+                         NSEventModifierFlagControl | NSEventModifierFlagOption),
+                  "ctrl+opt+R starts reconversion on a Chinese selection");
+            checkEq(s.client.markedText, @"測試",
+                    "the selection reopens as an Ari composition");
+            check(NSEqualRanges(s.client.lastMarkedReplacement, NSMakeRange(0, 2)),
+                  "the composition replaces the original range");
+        }
+
+        { // Escape puts the original text back rather than losing it.
+            Session s;
+            s.client.documentText = @"測試";
+            s.client.selectedRange = NSMakeRange(0, 2);
+            s.send(kVK_ANSI_R, @"r",
+                   NSEventModifierFlagControl | NSEventModifierFlagOption);
+            s.send(kVK_Escape, @"\x1b");
+            checkEq(s.client.committed, @"測試",
+                    "escape restores the original selection");
+        }
+
+        { // Nothing to reconvert: the shortcut belongs to the application.
+            Session s;
+            s.client.documentText = @"hello";
+            s.client.selectedRange = NSMakeRange(0, 5);
+            check(!s.send(kVK_ANSI_R, @"r",
+                          NSEventModifierFlagControl | NSEventModifierFlagOption),
+                  "English selection declines reconversion");
+            checkEq(s.client.markedText, @"", "the document is left alone");
+        }
+
+        { // No selection at all.
+            Session s;
+            check(!s.send(kVK_ANSI_R, @"r",
+                          NSEventModifierFlagControl | NSEventModifierFlagOption),
+                  "no selection declines reconversion");
         }
 
         { // Command shortcuts are never swallowed.

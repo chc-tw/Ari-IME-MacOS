@@ -67,6 +67,7 @@ add_executable(AriIME MACOSX_BUNDLE
     "${CMAKE_CURRENT_LIST_DIR}/AriApp.mm"
     "${CMAKE_CURRENT_LIST_DIR}/AriInputController.mm"
     "${CMAKE_CURRENT_LIST_DIR}/AriCandidateWindow.mm"
+    "${CMAKE_CURRENT_LIST_DIR}/AriHUD.mm"
     "${CMAKE_CURRENT_LIST_DIR}/KeyMap.mm"
 )
 target_link_libraries(AriIME PRIVATE ari-core
@@ -152,7 +153,8 @@ elseif(BUILD_TESTING)
     add_library(ari-frontend STATIC
         "${CMAKE_CURRENT_LIST_DIR}/KeyMap.mm"
         "${CMAKE_CURRENT_LIST_DIR}/AriInputController.mm"
-        "${CMAKE_CURRENT_LIST_DIR}/AriCandidateWindow.mm")
+        "${CMAKE_CURRENT_LIST_DIR}/AriCandidateWindow.mm"
+        "${CMAKE_CURRENT_LIST_DIR}/AriHUD.mm")
     target_include_directories(ari-frontend PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
     target_link_libraries(ari-frontend PUBLIC ari-core
         "-framework Cocoa" "-framework Carbon" "-framework InputMethodKit")

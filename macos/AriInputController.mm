@@ -4,6 +4,8 @@
 
 #import <Carbon/Carbon.h>
 
+#include <algorithm>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -17,6 +19,7 @@
 #include "unicode.h"
 
 #import "AriCandidateWindow.h"
+#import "AriHUD.h"
 #import "KeyMap.h"
 
 namespace {
@@ -66,6 +69,60 @@ NSUInteger utf16OffsetForGrapheme(const std::string &text, int grapheme) {
     return toNSString(text.substr(0, bytes)).length;
 }
 
+// The auxiliary line Fcitx5 draws above the candidates while re-selecting:
+// a window of nearby characters with the focused one (or the caret) marked.
+// The client renders the inline pre-edit however it likes, so this is the one
+// place the user can reliably see WHICH character is being edited.
+NSString *editingPreview(const std::string &text, int position, bool picking) {
+    constexpr int kContextChars = 10;
+    const std::vector<std::string> chars = inputer::unicode::splitGraphemes(text);
+    const int total = static_cast<int>(chars.size());
+    position = std::clamp(position, 0, total);
+    const int start = std::max(0, position - kContextChars);
+    const int end = std::min(total, position + kContextChars + (picking ? 1 : 0));
+
+    std::string out;
+    if (start > 0) {
+        out += "…";
+    }
+    for (int i = start; i < end; ++i) {
+        if (!picking && i == position) {
+            out += "|";
+        }
+        if (picking && i == position) {
+            out += "[" + chars[i] + "]";
+        } else {
+            out += chars[i];
+        }
+    }
+    if (!picking && position == end) {
+        out += "|";
+    }
+    if (end < total) {
+        out += "…";
+    }
+    return toNSString(out);
+}
+
+std::string statusText(const Buffer &buffer) {
+    std::string out = buffer.isForcedEnglish() ? "英" : "中";
+    out += " · ";
+    out += inputer::keyboardLayoutName(buffer.keyboardLayout());
+    out += " · ";
+    out += buffer.isFullWidthPunct() ? "全形標點" : "半形標點";
+    return out;
+}
+
+NSString *joinAuxParts(NSArray<NSString *> *parts) {
+    NSMutableArray<NSString *> *kept = [NSMutableArray array];
+    for (NSString *part in parts) {
+        if (part.length > 0) {
+            [kept addObject:part];
+        }
+    }
+    return [kept componentsJoinedByString:@" · "];
+}
+
 // One shared candidate panel: only one input context composes at a time.
 AriCandidateWindow *sharedCandidateWindow() {
     static AriCandidateWindow *window = [[AriCandidateWindow alloc] init];
@@ -74,8 +131,31 @@ AriCandidateWindow *sharedCandidateWindow() {
 
 } // namespace
 
+// The state machine, exposed to this file only.
+@interface AriInputController ()
+@property(nonatomic, readonly) Buffer &buffer;
+@end
+
 @implementation AriInputController {
-    Buffer _buffer;
+    // Held by pointer so a forget can destroy the state machine (and with it
+    // the libchewing context, which is what actually writes the personal
+    // dictionary) and start a fresh one.
+    std::unique_ptr<Buffer> _buffer;
+    // Reconversion: the client's original selection, kept so Escape or a focus
+    // change can put it back instead of losing the user's text.
+    BOOL _reconversionActive;
+    NSString *_reconversionText;
+    NSRange _reconversionRange;
+    // Applied to the next setMarkedText so the marked composition replaces the
+    // selected range rather than being inserted next to it.
+    NSRange _pendingReplacement;
+    // libchewing only writes the personal dictionary when the context is
+    // destroyed, and exposes no flush API. A forget therefore has to wait for
+    // the composition to end before it can be made durable.
+    BOOL _forgetPendingFlush;
+    // Mirrors the Fcitx5 addon's ShowStatusLine option; off by default, as
+    // there. The settings UI that drives it lands with the rest of M4.
+    BOOL _showStatusLine;
     // Set once we have told the user the 注音 engine failed to load.
     BOOL _engineErrorNotified;
 }
@@ -87,9 +167,29 @@ AriCandidateWindow *sharedCandidateWindow() {
     return NSEventMaskKeyDown;
 }
 
+- (instancetype)initWithServer:(IMKServer *)server
+                      delegate:(id)delegate
+                        client:(id)client {
+    self = [super initWithServer:server delegate:delegate client:client];
+    if (self) {
+        _pendingReplacement = NSMakeRange(NSNotFound, 0);
+        _reconversionRange = NSMakeRange(NSNotFound, 0);
+    }
+    return self;
+}
+
+// Created on demand so the controller works regardless of which initializer
+// InputMethodKit uses.
+- (Buffer &)buffer {
+    if (!_buffer) {
+        _buffer = std::make_unique<Buffer>();
+    }
+    return *_buffer;
+}
+
 - (void)activateServer:(id)sender {
     os_log_info(ariLog(), "activateServer client=%{public}@ engineReady=%d",
-                [sender class], _buffer.engineReady());
+                [sender class], self.buffer.engineReady());
 }
 
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
@@ -102,13 +202,23 @@ AriCandidateWindow *sharedCandidateWindow() {
     // macOS reports secure input globally rather than per field, so Ari takes
     // the conservative reading: while any application has secure input on,
     // nothing is learned.
-    _buffer.setLearningAllowed(!IsSecureEventInputEnabled());
+    self.buffer.setLearningAllowed(!IsSecureEventInputEnabled());
 
     // NSEvent cannot report "the character with only Shift applied", so resolve
     // it against the keyboard layout instead. -charactersIgnoringModifiers
     // drops Shift as well (Shift+1 reports "1"), which silently turned every
     // shifted punctuation key into its unshifted form.
     const std::uint32_t modifiers = modifiersFrom(event.modifierFlags);
+    // ⌘V pastes into the pre-edit, but only while composing. Fcitx5 always
+    // routes Ctrl+V through the buffer; on macOS that would break ⌘V for every
+    // application and every non-text flavour on the pasteboard, so Ari only
+    // claims it when it actually has a composition to paste into.
+    if ((modifiers & ari::ModCommand) && event.keyCode == kVK_ANSI_V &&
+        !(modifiers & (ari::ModControl | ari::ModOption)) &&
+        !self.buffer.preeditText().empty() && [self pasteIntoBuffer:sender]) {
+        return YES;
+    }
+
     const std::string character = ari::shiftedCharacterForKeyCode(
         event.keyCode, (modifiers & ari::ModShift) != 0,
         (modifiers & ari::ModCapsLock) != 0);
@@ -118,16 +228,42 @@ AriCandidateWindow *sharedCandidateWindow() {
         return NO;
     }
 
-    if (!_buffer.engineReady() && !_engineErrorNotified) {
+    if (!self.buffer.engineReady() && !_engineErrorNotified) {
         _engineErrorNotified = YES;
         [self showTransient:@"注音引擎載入失敗，暫以英文輸入" client:sender];
     }
 
-    const KeyResult result = _buffer.handleKey(translated.key);
+    // ⌃⌥R reopens a short, already-committed Chinese selection for ordinary
+    // candidate editing. When the client cannot offer a usable selection the
+    // shortcut is left untouched for the application.
+    if (event.keyCode == kVK_ANSI_R &&
+        (modifiers & ~static_cast<std::uint32_t>(ari::ModCapsLock)) ==
+            (ari::ModControl | ari::ModOption) &&
+        [self beginReconversionWithClient:sender]) {
+        return YES;
+    }
+
+    const KeyResult result = self.buffer.handleKey(translated.key);
+
+    // Escape during reconversion must give the original text back.
+    if (_reconversionActive && translated.key.sym() == FcitxKey_Escape &&
+        result.handled) {
+        [self cancelReconversionWithClient:sender];
+        return YES;
+    }
+
     [self applyResult:result client:sender];
+    if (_reconversionActive && result.hasCommit) {
+        _reconversionActive = NO;
+        _reconversionText = nil;
+    }
+    if (!result.notification.empty() &&
+        result.notification.rfind("已忘記", 0) == 0) {
+        _forgetPendingFlush = YES;
+    }
     os_log_debug(ariLog(), "char=%{public}s handled=%d preedit=%{public}s",
                  character.c_str(), result.handled,
-                 _buffer.preeditText().c_str());
+                 self.buffer.preeditText().c_str());
     return result.handled ? YES : NO;
 }
 
@@ -137,7 +273,7 @@ AriCandidateWindow *sharedCandidateWindow() {
           replacementRange:NSMakeRange(NSNotFound, 0)];
     }
     if (result.notifyMode) {
-        [self showTransient:(_buffer.isForcedEnglish() ? @"英 English" : @"中 中文")
+        [self showTransient:(self.buffer.isForcedEnglish() ? @"英 English" : @"中 中文")
                      client:sender];
     }
     if (!result.notification.empty()) {
@@ -149,13 +285,16 @@ AriCandidateWindow *sharedCandidateWindow() {
 }
 
 - (void)updateUIForClient:(id)sender {
-    const std::string preedit = _buffer.preeditText();
+    const std::string preedit = self.buffer.preeditText();
     NSString *preeditString = toNSString(preedit);
+
+    const NSRange replacement = _pendingReplacement;
+    _pendingReplacement = NSMakeRange(NSNotFound, 0);
 
     if (preedit.empty()) {
         [sender setMarkedText:@""
                selectionRange:NSMakeRange(0, 0)
-             replacementRange:NSMakeRange(NSNotFound, 0)];
+             replacementRange:replacement];
         [sharedCandidateWindow() hide];
         return;
     }
@@ -166,17 +305,18 @@ AriCandidateWindow *sharedCandidateWindow() {
                    value:@(NSUnderlineStyleSingle)
                    range:NSMakeRange(0, preeditString.length)];
     const NSUInteger caret =
-        utf16OffsetForGrapheme(preedit, _buffer.caretChar());
+        utf16OffsetForGrapheme(preedit, self.buffer.caretChar());
     [sender setMarkedText:marked
            selectionRange:NSMakeRange(caret, 0)
-         replacementRange:NSMakeRange(NSNotFound, 0)];
+         replacementRange:replacement];
 
-    [self showCandidatesForClient:sender];
+    [self showPanelForClient:sender preedit:preedit];
 }
 
-- (void)showCandidatesForClient:(id)sender {
-    const std::vector<std::string> candidates = _buffer.candidates();
-    if (candidates.empty()) {
+- (void)showPanelForClient:(id)sender preedit:(const std::string &)preedit {
+    const std::vector<std::string> candidates = self.buffer.candidates();
+    const bool editing = self.buffer.isEditing();
+    if (candidates.empty() && !editing) {
         [sharedCandidateWindow() hide];
         return;
     }
@@ -187,17 +327,44 @@ AriCandidateWindow *sharedCandidateWindow() {
         [items addObject:toNSString(candidate)];
     }
 
-    NSString *auxDown = @"";
-    const int pages = _buffer.candidatePageCount();
+    // Above the list: which character is being edited.
+    NSString *auxUp = @"";
+    if (editing) {
+        const bool picking = self.buffer.isPicking();
+        auxUp = editingPreview(
+            preedit, picking ? self.buffer.selectionChar() : self.buffer.caretChar(),
+            picking);
+    }
+
+    // Below it: candidate page, cursor position, and the optional status line.
+    NSMutableArray<NSString *> *auxParts = [NSMutableArray array];
+    const int pages = self.buffer.candidatePageCount();
     if (pages > 1) {
-        auxDown = [NSString stringWithFormat:@"候選 %d/%d",
-                                             _buffer.candidatePage(), pages];
+        [auxParts addObject:[NSString stringWithFormat:@"候選 %d/%d",
+                                                       self.buffer.candidatePage(),
+                                                       pages]];
+    }
+    if (editing) {
+        const int total = static_cast<int>(
+            inputer::unicode::splitGraphemes(preedit).size());
+        if (self.buffer.isPicking()) {
+            [auxParts addObject:[NSString stringWithFormat:@"選字 %d/%d",
+                                                           self.buffer.selectionChar() + 1,
+                                                           total]];
+        } else {
+            [auxParts addObject:[NSString stringWithFormat:@"游標 %d/%d",
+                                                           std::max(self.buffer.caretChar(), 0),
+                                                           total]];
+        }
+    }
+    if (_showStatusLine) {
+        [auxParts addObject:toNSString(statusText(self.buffer))];
     }
 
     [sharedCandidateWindow() showCandidates:items
-                                  highlight:_buffer.highlight()
-                                      auxUp:@""
-                                    auxDown:auxDown
+                                  highlight:self.buffer.highlight()
+                                      auxUp:auxUp
+                                    auxDown:joinAuxParts(auxParts)
                                      atRect:[self caretRectForClient:sender]];
 }
 
@@ -213,20 +380,89 @@ AriCandidateWindow *sharedCandidateWindow() {
     return rect;
 }
 
-// M2 placeholder for the transient 中/英 and action hints. It reuses the
-// candidate panel; a dedicated HUD arrives with the rest of the UI work.
+// Reconversion needs a selection the client can both read and replace. Any
+// doubt (secure input, an active composition, no selection, text Ari cannot
+// find readings for) means declining without touching the document.
+- (BOOL)beginReconversionWithClient:(id)sender {
+    if (_reconversionActive || IsSecureEventInputEnabled() ||
+        self.buffer.isForcedEnglish() || !self.buffer.preeditText().empty()) {
+        return NO;
+    }
+    if (![sender respondsToSelector:@selector(selectedRange)] ||
+        ![sender respondsToSelector:@selector(attributedSubstringFromRange:)]) {
+        return NO;
+    }
+    const NSRange selection = [sender selectedRange];
+    if (selection.length == 0 || selection.location == NSNotFound) {
+        return NO;
+    }
+    NSAttributedString *selected =
+        [sender attributedSubstringFromRange:selection];
+    NSString *text = selected.string;
+    if (text.length == 0) {
+        return NO;
+    }
+
+    const KeyResult result = self.buffer.beginReconversion(text.UTF8String ?: "");
+    if (!result.handled) {
+        return NO; // no reading for some grapheme: leave the document alone
+    }
+
+    _reconversionActive = YES;
+    _reconversionText = text;
+    _reconversionRange = selection;
+    // The composition replaces the selection in one step; there is no separate
+    // "delete surrounding text" call on macOS.
+    _pendingReplacement = selection;
+    [self updateUIForClient:sender];
+    return YES;
+}
+
+- (void)cancelReconversionWithClient:(id)sender {
+    NSString *original = _reconversionText;
+    _reconversionActive = NO;
+    _reconversionText = nil;
+    self.buffer.reset();
+    [sender setMarkedText:@""
+           selectionRange:NSMakeRange(0, 0)
+         replacementRange:NSMakeRange(NSNotFound, 0)];
+    if (original.length > 0) {
+        [sender insertText:original
+          replacementRange:NSMakeRange(NSNotFound, 0)];
+    }
+    [sharedCandidateWindow() hide];
+}
+
+// Destroy and recreate the state machine so libchewing writes the personal
+// dictionary. Only safe with no composition in flight, so it runs when the
+// composition ends.
+- (void)flushForgetIfPending {
+    if (!_forgetPendingFlush) {
+        return;
+    }
+    _forgetPendingFlush = NO;
+    const bool forcedEnglish = self.buffer.isForcedEnglish();
+    _buffer.reset(); // destroying the context is what flushes the dictionary
+    if (forcedEnglish != self.buffer.isForcedEnglish()) {
+        self.buffer.handleKey(fcitx::Key(FcitxKey_space, fcitx::KeyState::Ctrl));
+    }
+}
+
+// Returns NO when the pasteboard holds nothing Ari can insert, so the
+// application still receives the shortcut.
+- (BOOL)pasteIntoBuffer:(id)sender {
+    NSString *text =
+        [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+    if (text.length == 0) {
+        return NO;
+    }
+    self.buffer.pasteAtCaret(text.UTF8String ?: "");
+    [self updateUIForClient:sender];
+    return YES;
+}
+
 - (void)showTransient:(NSString *)message client:(id)sender {
-    [sharedCandidateWindow() showCandidates:@[]
-                                  highlight:-1
-                                      auxUp:message
-                                    auxDown:@""
-                                     atRect:[self caretRectForClient:sender]];
-    __weak AriCandidateWindow *window = sharedCandidateWindow();
-    dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)),
-        dispatch_get_main_queue(), ^{
-          [window hide];
-        });
+    [AriHUD.shared show:message atRect:[self caretRectForClient:sender]];
 }
 
 // macOS reports the Caps Lock language switch (and the ABC entry in the input
@@ -241,8 +477,8 @@ AriCandidateWindow *sharedCandidateWindow() {
         NSString *mode = value;
         const BOOL wantEnglish =
             [mode hasSuffix:@".Roman"] || [mode containsString:@"ASCII"];
-        if (wantEnglish != _buffer.isForcedEnglish()) {
-            const KeyResult result = _buffer.handleKey(
+        if (wantEnglish != self.buffer.isForcedEnglish()) {
+            const KeyResult result = self.buffer.handleKey(
                 fcitx::Key(FcitxKey_space, fcitx::KeyState::Ctrl));
             [self applyResult:result client:sender];
         }
@@ -252,16 +488,23 @@ AriCandidateWindow *sharedCandidateWindow() {
 }
 
 - (void)commitComposition:(id)sender {
-    const std::string preedit = _buffer.preeditText();
+    if (_reconversionActive) {
+        // Focus left mid-reconversion: hand back exactly what was selected.
+        [self cancelReconversionWithClient:sender];
+        [self flushForgetIfPending];
+        return;
+    }
+    const std::string preedit = self.buffer.preeditText();
     if (!preedit.empty()) {
         [sender insertText:toNSString(preedit)
           replacementRange:NSMakeRange(NSNotFound, 0)];
     }
-    _buffer.reset();
+    self.buffer.reset();
     [sender setMarkedText:@""
            selectionRange:NSMakeRange(0, 0)
          replacementRange:NSMakeRange(NSNotFound, 0)];
     [sharedCandidateWindow() hide];
+    [self flushForgetIfPending];
 }
 
 - (void)deactivateServer:(id)sender {
