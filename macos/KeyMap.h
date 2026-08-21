@@ -20,6 +20,8 @@
 
 #include <fcitx-utils/key.h>
 
+#include "AriPreferences.h"
+
 namespace ari {
 
 enum Modifier : std::uint32_t {
@@ -42,9 +44,20 @@ struct KeyTranslation {
 // -charactersIgnoringModifiers drops Shift too (Shift+2 reports "2", not "@"),
 // and -characters mangles the value under Control/Option. Use
 // shiftedCharacterForKeyCode() to obtain it.
+// State the translation depends on beyond the key itself.
+struct TranslationContext {
+    // True while the candidate window is open. macOS input methods page the
+    // candidate list with ←/→; Ari's core gives those keys to character
+    // navigation instead, so the arrows are rewritten here rather than in the
+    // core, and only while the list is actually open.
+    bool candidateWindowOpen = false;
+    ArrowStyle arrowStyle = ArrowStyle::MacOS;
+};
+
 KeyTranslation translateKey(std::uint16_t keyCode,
                             std::string_view shiftedCharacter,
-                            std::uint32_t modifiers);
+                            std::uint32_t modifiers,
+                            TranslationContext context = {});
 
 // Resolve a virtual key code against the user's *keyboard layout* (not the
 // active input method), applying only Shift and Caps Lock. Returns an empty

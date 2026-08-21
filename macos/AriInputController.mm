@@ -20,6 +20,7 @@
 
 #import "AriCandidateWindow.h"
 #import "AriHUD.h"
+#import "AriPreferences.h"
 #import "KeyMap.h"
 
 namespace {
@@ -154,7 +155,7 @@ AriCandidateWindow *sharedCandidateWindow() {
     // the composition to end before it can be made durable.
     BOOL _forgetPendingFlush;
     // Mirrors the Fcitx5 addon's ShowStatusLine option; off by default, as
-    // there. The settings UI that drives it lands with the rest of M4.
+    // there.
     BOOL _showStatusLine;
     // Set once we have told the user the 注音 engine failed to load.
     BOOL _engineErrorNotified;
@@ -199,10 +200,29 @@ AriCandidateWindow *sharedCandidateWindow() {
     os_log_debug(ariLog(), "keyDown code=%d mods=0x%lx", (int)event.keyCode,
                  (unsigned long)event.modifierFlags);
 
+    // Applying the preferences on every keystroke is cheap and idempotent, and
+    // means a change takes effect immediately in every context — the same
+    // approach the Fcitx5 frontend takes with its addon config.
+    const ari::Preferences preferences = ari::currentPreferences();
+    _showStatusLine = preferences.showStatusLine;
+    if (self.buffer.setKeyboardLayout(preferences.layout)) {
+        [self showTransient:toNSString(std::string("鍵盤 ") +
+                                       inputer::keyboardLayoutName(preferences.layout))
+                     client:sender];
+    }
+    if (self.buffer.setFullWidthPunct(preferences.fullWidthPunctuation)) {
+        [self showTransient:(preferences.fullWidthPunctuation ? @"標點 全形"
+                                                              : @"標點 半形")
+                     client:sender];
+    }
+    self.buffer.setChinesePunctuationShortcut(preferences.punctuationShortcut);
+    self.buffer.setSpaceCandidateMode(preferences.spaceCandidateMode);
+
     // macOS reports secure input globally rather than per field, so Ari takes
     // the conservative reading: while any application has secure input on,
     // nothing is learned.
-    self.buffer.setLearningAllowed(!IsSecureEventInputEnabled());
+    self.buffer.setLearningAllowed(preferences.autoLearn &&
+                                   !IsSecureEventInputEnabled());
 
     // NSEvent cannot report "the character with only Shift applied", so resolve
     // it against the keyboard layout instead. -charactersIgnoringModifiers
@@ -222,8 +242,10 @@ AriCandidateWindow *sharedCandidateWindow() {
     const std::string character = ari::shiftedCharacterForKeyCode(
         event.keyCode, (modifiers & ari::ModShift) != 0,
         (modifiers & ari::ModCapsLock) != 0);
-    const ari::KeyTranslation translated =
-        ari::translateKey(event.keyCode, character, modifiers);
+    const ari::KeyTranslation translated = ari::translateKey(
+        event.keyCode, character, modifiers,
+        {.candidateWindowOpen = self.buffer.isPicking(),
+         .arrowStyle = preferences.arrowStyle});
     if (!translated.valid || translated.passThrough) {
         return NO;
     }

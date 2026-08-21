@@ -169,11 +169,42 @@ std::string shiftedCharacterForKeyCode(std::uint16_t keyCode, bool shift,
     return text.UTF8String ?: "";
 }
 
+// Rewrite the arrows the way macOS users expect while the candidate window is
+// open: ←/→ page the list, and ⌥←/⌥→ take over walking the pre-edit. Outside
+// the candidate window the arrows keep their ordinary caret meaning.
+bool translateCandidateArrow(std::uint16_t keyCode, std::uint32_t modifiers,
+                             const TranslationContext &context,
+                             KeyTranslation &out) {
+    if (!context.candidateWindowOpen ||
+        context.arrowStyle != ArrowStyle::MacOS) {
+        return false;
+    }
+    const bool option = (modifiers & ModOption) != 0;
+    if (modifiers & ~static_cast<std::uint32_t>(ModOption | ModCapsLock)) {
+        return false; // any other modifier keeps its normal meaning
+    }
+    switch (keyCode) {
+    case kVK_LeftArrow:
+        out = {true, false, fcitx::Key(option ? FcitxKey_Left : FcitxKey_Page_Up)};
+        return true;
+    case kVK_RightArrow:
+        out = {true, false,
+               fcitx::Key(option ? FcitxKey_Right : FcitxKey_Page_Down)};
+        return true;
+    default:
+        return false;
+    }
+}
+
 KeyTranslation translateKey(std::uint16_t keyCode,
                             std::string_view shiftedCharacter,
-                            std::uint32_t modifiers) {
+                            std::uint32_t modifiers,
+                            TranslationContext context) {
     KeyTranslation shortcut;
     if (translateAriShortcut(keyCode, modifiers, shortcut)) {
+        return shortcut;
+    }
+    if (translateCandidateArrow(keyCode, modifiers, context, shortcut)) {
         return shortcut;
     }
 

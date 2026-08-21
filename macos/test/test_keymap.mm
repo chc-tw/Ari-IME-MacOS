@@ -183,6 +183,37 @@ int main() {
     expectKey("caps lock alone forwards no modifier",
               translateKey(kVK_ANSI_S, "S", ari::ModCapsLock), 0x53, 0);
 
+    // --- Candidate-window arrows (macOS style) ---------------------------
+    const ari::TranslationContext picking{.candidateWindowOpen = true,
+                                          .arrowStyle = ari::ArrowStyle::MacOS};
+    const ari::TranslationContext linux{.candidateWindowOpen = true,
+                                        .arrowStyle = ari::ArrowStyle::Linux};
+    const ari::TranslationContext typing{};
+
+    expectKey("picking: left pages back",
+              translateKey(kVK_LeftArrow, "", 0, picking), FcitxKey_Page_Up, 0);
+    expectKey("picking: right pages forward",
+              translateKey(kVK_RightArrow, "", 0, picking), FcitxKey_Page_Down, 0);
+    expectKey("picking: opt+left walks characters",
+              translateKey(kVK_LeftArrow, "", ari::ModOption, picking),
+              FcitxKey_Left, 0);
+    expectKey("picking: opt+right walks characters",
+              translateKey(kVK_RightArrow, "", ari::ModOption, picking),
+              FcitxKey_Right, 0);
+    // Up/Down keep moving through the list, not pages.
+    expectKey("picking: down is unchanged",
+              translateKey(kVK_DownArrow, "", 0, picking), FcitxKey_Down, 0);
+    // Outside the candidate window the arrows keep their caret meaning.
+    expectKey("typing: left is still left",
+              translateKey(kVK_LeftArrow, "", 0, typing), FcitxKey_Left, 0);
+    // Ctrl+arrow is phrase navigation in the core and must survive.
+    expectKey("picking: ctrl+left is untouched",
+              translateKey(kVK_LeftArrow, "", ari::ModControl, picking),
+              FcitxKey_Left, kCtrl);
+    // The Linux style leaves everything alone.
+    expectKey("linux style: left still walks characters",
+              translateKey(kVK_LeftArrow, "", 0, linux), FcitxKey_Left, 0);
+
     // --- Command belongs to the application ------------------------------
     expectPassThrough("cmd+c", translateKey(kVK_ANSI_C, "c", ari::ModCommand));
     expectPassThrough("cmd+q", translateKey(kVK_ANSI_Q, "q", ari::ModCommand));
