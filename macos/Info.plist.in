@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_TW</string>
+    <key>CFBundleExecutable</key>
+    <string>AriIME</string>
+    <key>CFBundleIdentifier</key>
+    <string>@ARI_BUNDLE_ID@</string>
+    <key>CFBundleName</key>
+    <string>Ari IME</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleSignature</key>
+    <string>ARIM</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@PROJECT_VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@PROJECT_VERSION@</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>@CMAKE_OSX_DEPLOYMENT_TARGET@</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+    <!-- Input methods run as agents: no Dock tile. -->
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+
+    <key>InputMethodConnectionName</key>
+    <string>@ARI_BUNDLE_ID@_Connection</string>
+    <key>InputMethodServerControllerClass</key>
+    <string>AriInputController</string>
+
+    <key>TISInputSourceID</key>
+    <string>@ARI_BUNDLE_ID@</string>
+    <key>TISIntendedLanguage</key>
+    <string>zh-Hant</string>
+    <!-- Lets macOS use Caps Lock to switch between Chinese and ABC, the way
+         every system Chinese input method behaves. -->
+    <key>TICapsLockLanguageSwitchCapable</key>
+    <true/>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>tsInputMethodCharacterRepertoireKey</key>
+    <array>
+        <string>Hant</string>
+        <string>Han</string>
+    </array>
+    <key>tsInputMethodIconFileKey</key>
+    <string>ari.tiff</string>
+
+    <key>ComponentInputModeDict</key>
+    <dict>
+        <key>tsInputModeListKey</key>
+        <dict>
+            <key>@ARI_BUNDLE_ID@.Zhuyin</key>
+            <dict>
+                <key>TISInputSourceID</key>
+                <string>@ARI_BUNDLE_ID@.Zhuyin</string>
+                <key>TISIntendedLanguage</key>
+                <string>zh-Hant</string>
+                <key>tsInputModeAlternateMenuIconFileKey</key>
+                <string>ari.tiff</string>
+                <key>tsInputModeCharacterRepertoireKey</key>
+                <array>
+                    <string>Hant</string>
+                    <string>Han</string>
+                </array>
+                <key>tsInputModeDefaultStateKey</key>
+                <true/>
+                <key>tsInputModeIsVisibleKey</key>
+                <true/>
+                <key>tsInputModeMenuIconFileKey</key>
+                <string>ari.tiff</string>
+                <key>tsInputModePaletteIconFileKey</key>
+                <string>ari.tiff</string>
+                <key>tsInputModePrimaryInScriptKey</key>
+                <true/>
+                <key>tsInputModeScriptKey</key>
+                <string>smTradChinese</string>
+            </dict>
+        </dict>
+        <key>tsVisibleInputModeOrderedArrayKey</key>
+        <array>
+            <string>@ARI_BUNDLE_ID@.Zhuyin</string>
+        </array>
+    </dict>
+</dict>
+</plist>
