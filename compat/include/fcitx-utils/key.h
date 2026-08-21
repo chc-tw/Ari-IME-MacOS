@@ -22,6 +22,12 @@ public:
     constexpr KeyStates() = default;
     explicit constexpr KeyStates(std::uint32_t bits) : bits_(bits) {}
 
+    // Fcitx5 allows a bare KeyState wherever KeyStates is expected, e.g.
+    // Key(FcitxKey_space, KeyState::Ctrl). Keep the conversion implicit so
+    // frontend and test code written against the real API compiles unchanged.
+    constexpr KeyStates(KeyState state)
+        : bits_(static_cast<std::uint32_t>(state)) {}
+
     KeyStates(std::initializer_list<KeyState> states) {
         for (const KeyState state : states) {
             bits_ |= static_cast<std::uint32_t>(state);

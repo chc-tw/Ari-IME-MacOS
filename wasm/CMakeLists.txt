@@ -37,6 +37,7 @@ set(ARI_HEADLESS_SOURCES
 add_library(ari-ime-headless STATIC ${ARI_HEADLESS_SOURCES})
 target_include_directories(ari-ime-headless
     BEFORE PRIVATE
+        "${ARI_SOURCE_ROOT}/compat/include"
         "${CMAKE_CURRENT_LIST_DIR}/include"
         "${ARI_SOURCE_ROOT}/src"
         "${CHEWING_INCLUDE_DIR}"
@@ -66,6 +67,7 @@ if(ARI_WASM_BUILD_NATIVE_TEST)
         "${CMAKE_CURRENT_LIST_DIR}/test/native_api.cpp")
     target_include_directories(ari-ime-wasm-native-test
         PRIVATE
+            "${ARI_SOURCE_ROOT}/compat/include"
             "${CMAKE_CURRENT_LIST_DIR}/include"
             "${ARI_SOURCE_ROOT}/src")
     target_link_libraries(ari-ime-wasm-native-test PRIVATE ari-ime-headless)
@@ -77,6 +79,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     add_executable(ari-ime-wasm "${CMAKE_CURRENT_LIST_DIR}/api.cpp")
     target_include_directories(ari-ime-wasm
         BEFORE PRIVATE
+            "${ARI_SOURCE_ROOT}/compat/include"
             "${CMAKE_CURRENT_LIST_DIR}/include"
             "${ARI_SOURCE_ROOT}/src"
     )

@@ -62,4 +62,28 @@ inline constexpr fcitx::KeySym FcitxKey_KP_Right = 0xff98;
 inline constexpr fcitx::KeySym FcitxKey_KP_Down = 0xff99;
 inline constexpr fcitx::KeySym FcitxKey_KP_Delete = 0xff9f;
 
+// Printable ASCII keysyms are their ASCII code point (X11 convention).
+inline constexpr fcitx::KeySym FcitxKey_exclam = 0x0021;
+inline constexpr fcitx::KeySym FcitxKey_parenleft = 0x0028;
+inline constexpr fcitx::KeySym FcitxKey_parenright = 0x0029;
+inline constexpr fcitx::KeySym FcitxKey_period = 0x002e;
+inline constexpr fcitx::KeySym FcitxKey_slash = 0x002f;
+inline constexpr fcitx::KeySym FcitxKey_3 = 0x0033;
+inline constexpr fcitx::KeySym FcitxKey_4 = 0x0034;
+inline constexpr fcitx::KeySym FcitxKey_colon = 0x003a;
+inline constexpr fcitx::KeySym FcitxKey_less = 0x003c;
+inline constexpr fcitx::KeySym FcitxKey_greater = 0x003e;
+inline constexpr fcitx::KeySym FcitxKey_question = 0x003f;
+inline constexpr fcitx::KeySym FcitxKey_braceleft = 0x007b;
+inline constexpr fcitx::KeySym FcitxKey_c = 0x0063;
+inline constexpr fcitx::KeySym FcitxKey_g = 0x0067;
+inline constexpr fcitx::KeySym FcitxKey_i = 0x0069;
+inline constexpr fcitx::KeySym FcitxKey_j = 0x006a;
+inline constexpr fcitx::KeySym FcitxKey_l = 0x006c;
+inline constexpr fcitx::KeySym FcitxKey_s = 0x0073;
+inline constexpr fcitx::KeySym FcitxKey_u = 0x0075;
+inline constexpr fcitx::KeySym FcitxKey_v = 0x0076;
+
+inline constexpr fcitx::KeySym FcitxKey_F1 = 0xffbe;
+
 #endif // ARI_WASM_FCITX_UTILS_KEYSYM_H
