@@ -308,6 +308,16 @@ int main() {
                     "escape restores the original selection");
         }
 
+        { // Pressed mid-composition: declined, but never leaked to the client,
+          // which would make the marked text disappear.
+            Session s;
+            s.type(@"su3");
+            check(s.send(kVK_ANSI_R, @"r",
+                         NSEventModifierFlagControl | NSEventModifierFlagOption),
+                  "ctrl+opt+R is swallowed while composing");
+            checkEq(s.client.markedText, @"你", "the composition survives it");
+        }
+
         { // Nothing to reconvert: the shortcut belongs to the application.
             Session s;
             s.client.documentText = @"hello";

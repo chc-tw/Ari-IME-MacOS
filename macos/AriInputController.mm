@@ -238,9 +238,18 @@ AriCandidateWindow *sharedCandidateWindow() {
     // shortcut is left untouched for the application.
     if (event.keyCode == kVK_ANSI_R &&
         (modifiers & ~static_cast<std::uint32_t>(ari::ModCapsLock)) ==
-            (ari::ModControl | ari::ModOption) &&
-        [self beginReconversionWithClient:sender]) {
-        return YES;
+            (ari::ModControl | ari::ModOption)) {
+        if ([self beginReconversionWithClient:sender]) {
+            return YES;
+        }
+        // Reconversion declined — most often because a composition is already
+        // in flight. Swallow the shortcut anyway rather than letting the
+        // application see a stray key while marked text is on screen: many
+        // clients drop the marked text when that happens, which looks like the
+        // user's text vanishing.
+        if (!self.buffer.preeditText().empty()) {
+            return YES;
+        }
     }
 
     const KeyResult result = self.buffer.handleKey(translated.key);
@@ -393,17 +402,23 @@ AriCandidateWindow *sharedCandidateWindow() {
         return NO;
     }
     const NSRange selection = [sender selectedRange];
+    os_log_info(ariLog(), "reconversion: client=%{public}@ selection=%lu,%lu",
+                [sender class], (unsigned long)selection.location,
+                (unsigned long)selection.length);
     if (selection.length == 0 || selection.location == NSNotFound) {
         return NO;
     }
     NSAttributedString *selected =
         [sender attributedSubstringFromRange:selection];
     NSString *text = selected.string;
+    os_log_info(ariLog(), "reconversion: selected=%{public}@", text);
     if (text.length == 0) {
         return NO;
     }
 
     const KeyResult result = self.buffer.beginReconversion(text.UTF8String ?: "");
+    os_log_info(ariLog(), "reconversion: handled=%d preedit=%{public}s",
+                result.handled, self.buffer.preeditText().c_str());
     if (!result.handled) {
         return NO; // no reading for some grapheme: leave the document alone
     }
