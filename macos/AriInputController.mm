@@ -154,6 +154,9 @@ AriCandidateWindow *sharedCandidateWindow() {
     // destroyed, and exposes no flush API. A forget therefore has to wait for
     // the composition to end before it can be made durable.
     BOOL _forgetPendingFlush;
+    // The last caret rectangle a client actually reported, see
+    // -caretRectForClient:.
+    NSRect _lastCaretRect;
     // Mirrors the Fcitx5 addon's ShowStatusLine option; off by default, as
     // there.
     BOOL _showStatusLine;
@@ -412,15 +415,24 @@ AriCandidateWindow *sharedCandidateWindow() {
 }
 
 - (NSRect)caretRectForClient:(id)sender {
-    NSRect rect = NSMakeRect(0, 0, 0, 0);
-    if ([sender respondsToSelector:@selector(attributesForCharacterIndex:lineHeightRectangle:)]) {
+    NSRect rect = NSZeroRect;
+    if ([sender respondsToSelector:@selector(attributesForCharacterIndex:
+                                                    lineHeightRectangle:)]) {
         [sender attributesForCharacterIndex:0 lineHeightRectangle:&rect];
     }
-    if (NSIsEmptyRect(rect)) {
-        rect = NSMakeRect(NSMidX(NSScreen.mainScreen.frame),
-                          NSMidY(NSScreen.mainScreen.frame), 1, 16);
+    if (!NSIsEmptyRect(rect)) {
+        _lastCaretRect = rect;
+        return rect;
     }
-    return rect;
+    // Clients intermittently report an empty rectangle (TextEdit does, between
+    // one keystroke and the next). Reusing the last known caret keeps the panel
+    // where the user is typing instead of throwing it to the middle of the
+    // screen.
+    if (!NSIsEmptyRect(_lastCaretRect)) {
+        return _lastCaretRect;
+    }
+    return NSMakeRect(NSMidX(NSScreen.mainScreen.frame),
+                      NSMidY(NSScreen.mainScreen.frame), 1, 16);
 }
 
 // Reconversion needs a selection the client can both read and replace. Any

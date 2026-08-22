@@ -583,3 +583,66 @@ libchewing 只在 `chewing_delete()`（context 解構）時寫檔，`chewing.h`
 
 `Buffer` 因此改為以 `std::unique_ptr` 持有（`Buffer` 不可複製）。
 強制英文狀態會在重建後還原（透過核心既有的 Ctrl+Space 路徑）。
+
+---
+
+## 11. 非文字輸入 client 偵測：調查結論（不做）
+
+**問題**：Finder 的檔案清單裡打字會開始組字，type-select（打字跳到檔案）失效。
+
+### 調查方法
+
+在 controller 加上暫時的探針，於每次焦點切換時 dump client 回報的所有值，
+實測 22 筆，涵蓋 Finder、TextEdit、Zed、iTerm2、Safari/Dia、Raycast、
+開啟/儲存面板、Claude Desktop。
+
+### 結果：沒有可用訊號
+
+```
+com.apple.finder   length=0 selected=0,0 marked=0,0 unicode=1 level=19
+dev.zed.Zed        length=0 selected=0,0 marked=0,0 unicode=1 level=19
+```
+
+Finder 的檔案清單與 Zed 編輯器**每一個純量欄位都相同**。
+Finder 的 `validAttributesForMarkedText` 亦包含 `NSMarkedClauseSegment`，
+主動宣告完整支援組字。
+
+此外 TextEdit 自身前後兩次回報並不一致
+（`length` 0 vs 2147483647、`selected` 0,0 vs NSNotFound），
+這些值即使在單一 app 內也不足以作為分支依據。
+
+旁證：使用者機器上的 McBopomofo 二進位檔中，除 `com.apple.keylayout.US`
+外沒有任何 app bundle id，代表這個成熟專案並未採用白名單。
+
+### 決定
+
+**不實作**。維持與 macOS 內建注音一致的行為（在 Finder 亦會組字）。
+誤判的代價是「某個 app 完全無法輸入中文」，遠大於 type-select 失效。
+
+若日後要重啟這個議題，需要的是**新的訊號**，而非更多 app 特例。
+
+### 副產品
+
+1. **候選視窗定位修正**：TextEdit 會間歇性回報 `rect={{0,0},{0,0}}`，
+   原本的 fallback 會把面板丟到螢幕正中央。改為沿用上一次有效的插入點矩形。
+
+2. **§7 的解釋修正**：`test_user_data` 的失敗**是環境相依的**——
+   `ctest -j4`（機器忙）通過，單獨執行（快）連續五次失敗。
+   追進 libchewing 原始碼：
+
+   ```rust
+   // src/dictionary/trie_buf.rs:322
+   self.join_handle = Some(thread::spawn(move || { /* write snapshot */ }));
+   // src/dictionary/trie_buf.rs:427
+   impl Drop for TrieBuf {
+       fn drop(&mut self) { self.wait(); self.sync(); self.flush(); self.wait(); }
+   }
+   ```
+
+   寫檔是**背景執行緒非同步**進行，且新的 checkpoint 若發現前一個尚未完成
+   就直接放棄。測試的失敗是「新 context 讀檔」與「背景執行緒寫檔」的競速。
+
+   **先前「libchewing 只在 context 解構時寫檔」的說法並不正確**：
+   它會非同步寫，`Drop` 只是保證 join 等待完成。
+   M3 的修法（忘記候選後、組字結束時重建 `Buffer`）依然正確——
+   它觸發 `Drop` 的 `wait/flush/wait`，保證寫入落地。
