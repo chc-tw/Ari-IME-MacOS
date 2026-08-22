@@ -274,6 +274,18 @@ AriCandidateWindow *sharedCandidateWindow() {
         }
     }
 
+    // A bare Space with nothing composed belongs to the application. The core
+    // parks it in the pre-edit (everything is held until Enter), which is
+    // harmless in a text field but wrong everywhere else on macOS: Space is
+    // Quick Look in Finder, play/pause in media apps, and activates the
+    // focused control. In a text field the application inserts exactly the
+    // same space, so nothing is lost by declining it.
+    if (translated.key.sym() == FcitxKey_space &&
+        (modifiers & ~static_cast<std::uint32_t>(ari::ModCapsLock)) == 0 &&
+        self.buffer.preeditText().empty()) {
+        return NO;
+    }
+
     const KeyResult result = self.buffer.handleKey(translated.key);
 
     // Escape during reconversion must give the original text back.

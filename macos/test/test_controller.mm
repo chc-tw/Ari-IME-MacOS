@@ -335,6 +335,21 @@ int main() {
                   "no selection declines reconversion");
         }
 
+        { // Space with nothing composed is the application's: Quick Look in
+          // Finder, play/pause in a media app, activating a focused control.
+            Session s;
+            check(!s.send(kVK_Space, @" "),
+                  "space passes through with no composition");
+            checkEq(s.client.markedText, @"", "and starts no composition");
+        }
+
+        { // With a composition it is Ari's: tone one, or a literal space.
+            Session s;
+            s.type(@"su3");
+            check(s.send(kVK_Space, @" "), "space is handled while composing");
+            checkEq(s.client.markedText, @"你 ", "space joins the composition");
+        }
+
         { // Command shortcuts are never swallowed.
             Session s;
             check(!s.send(kVK_ANSI_C, @"c", NSEventModifierFlagCommand),
