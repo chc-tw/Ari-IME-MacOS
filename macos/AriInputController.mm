@@ -213,11 +213,6 @@ AriCandidateWindow *sharedCandidateWindow() {
                                        inputer::keyboardLayoutName(preferences.layout))
                      client:sender];
     }
-    if (self.buffer.setFullWidthPunct(preferences.fullWidthPunctuation)) {
-        [self showTransient:(preferences.fullWidthPunctuation ? @"標點 全形"
-                                                              : @"標點 半形")
-                     client:sender];
-    }
     self.buffer.setChinesePunctuationShortcut(preferences.punctuationShortcut);
     self.buffer.setSpaceCandidateMode(preferences.spaceCandidateMode);
 
@@ -245,6 +240,18 @@ AriCandidateWindow *sharedCandidateWindow() {
     const std::string character = ari::shiftedCharacterForKeyCode(
         event.keyCode, (modifiers & ari::ModShift) != 0,
         (modifiers & ari::ModCapsLock) != 0);
+    // The core has one switch for "full-width punctuation", which covers both
+    // Chinese punctuation (，。「」？！) and full-width forms of the symbols a
+    // programmer types inside Chinese text (＠＃％＆). The system Bopomofo input
+    // method separates the two, and so does Ari on macOS: decide per key which
+    // of the two this character belongs to and ask the core for the right one.
+    // Everything the core already knows how to produce is reused; only the
+    // choice of when to ask for it lives here.
+    self.buffer.setFullWidthPunct(
+        preferences.punctuationStyle == ari::PunctuationStyle::Chinese &&
+        !self.buffer.isForcedEnglish() &&
+        ari::isChinesePunctuationKey(character));
+
     const ari::KeyTranslation translated = ari::translateKey(
         event.keyCode, character, modifiers,
         {.candidateWindowOpen = self.buffer.isPicking(),

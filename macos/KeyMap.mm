@@ -138,6 +138,19 @@ bool translateAriShortcut(std::uint16_t keyCode, std::uint32_t modifiers,
 
 } // namespace
 
+bool isChinesePunctuationKey(std::string_view character) {
+    if (character.size() != 1) {
+        return false;
+    }
+    // The keys whose Chinese forms the core already produces. `,` `.` `;` `/`
+    // and `-` are absent on purpose: they are Bopomofo finals (ㄝㄡㄤㄥㄦ), so
+    // their Chinese forms are reached through the shifted keys below.
+    //   < > -> ，。      ? ! : -> ？！：      ' \ -> 、
+    //   [ ] { } ( ) -> 「」『』（）          ~ ^ -> ～……
+    static constexpr std::string_view kChinesePunctuation = "<>?!:'\"\\[]{}()~^";
+    return kChinesePunctuation.find(character[0]) != std::string_view::npos;
+}
+
 std::string shiftedCharacterForKeyCode(std::uint16_t keyCode, bool shift,
                                        bool capsLock) {
     CFDataRef layoutData = currentLayoutData();

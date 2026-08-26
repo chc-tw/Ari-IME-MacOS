@@ -16,7 +16,7 @@ namespace {
 // and troubleshoot the same way:
 //   defaults write io.github.chctw.inputmethod.AriIME KeyboardLayout Eten
 NSString *const kKeyboardLayout = @"KeyboardLayout";
-NSString *const kFullWidthPunctuation = @"FullWidthPunctuation";
+NSString *const kPunctuationStyle = @"PunctuationStyle";
 NSString *const kChinesePunctuationShortcut = @"ChinesePunctuationShortcut";
 NSString *const kSpaceCandidateMode = @"SpaceCandidateMode";
 NSString *const kAutoLearn = @"AutoLearn";
@@ -54,8 +54,12 @@ Preferences currentPreferences(void *defaultsOrNil) {
     if (!inputer::keyboardLayoutAvailable(preferences.layout)) {
         preferences.layout = inputer::KeyboardLayout::Default;
     }
-    preferences.fullWidthPunctuation =
-        boolOr(defaults, kFullWidthPunctuation, preferences.fullWidthPunctuation);
+    NSString *punctuation = [defaults stringForKey:kPunctuationStyle];
+    if ([punctuation isEqualToString:@"English"]) {
+        preferences.punctuationStyle = PunctuationStyle::English;
+    } else if ([punctuation isEqualToString:@"Chinese"]) {
+        preferences.punctuationStyle = PunctuationStyle::Chinese;
+    }
     preferences.punctuationShortcut = enumOr(defaults, kChinesePunctuationShortcut,
                                              preferences.punctuationShortcut);
     preferences.spaceCandidateMode =

@@ -214,6 +214,33 @@ int main() {
     expectKey("linux style: left still walks characters",
               translateKey(kVK_LeftArrow, "", 0, linux), FcitxKey_Left, 0);
 
+    // --- Which keys get their Chinese form -------------------------------
+    for (const char *key : {"<", ">", "?", "!", ":", "'", "[", "]", "{", "}",
+                            "(", ")", "~", "^"}) {
+        ++checks;
+        if (!ari::isChinesePunctuationKey(key)) {
+            ++failures;
+            printf("FAIL '%s' should take its Chinese form\n", key);
+        }
+    }
+    // Symbols a programmer types inside Chinese text stay half-width.
+    for (const char *key : {"@", "#", "$", "%", "&", "*", "+", "=", "_", "`",
+                            "|"}) {
+        ++checks;
+        if (ari::isChinesePunctuationKey(key)) {
+            ++failures;
+            printf("FAIL '%s' should stay half-width\n", key);
+        }
+    }
+    // Bopomofo finals must never be diverted to punctuation.
+    for (const char *key : {",", ".", ";", "/", "-"}) {
+        ++checks;
+        if (ari::isChinesePunctuationKey(key)) {
+            ++failures;
+            printf("FAIL '%s' is a Bopomofo final, not punctuation\n", key);
+        }
+    }
+
     // --- Command belongs to the application ------------------------------
     expectPassThrough("cmd+c", translateKey(kVK_ANSI_C, "c", ari::ModCommand));
     expectPassThrough("cmd+q", translateKey(kVK_ANSI_Q, "q", ari::ModCommand));

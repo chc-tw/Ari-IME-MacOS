@@ -14,6 +14,16 @@ namespace ari {
 
 // What ←/→ do while the candidate window is open. The core only knows the
 // Linux behavior; KeyMap translates for the macOS one.
+// Which punctuation a bare punctuation key produces while composing Chinese.
+enum class PunctuationStyle {
+    // 「」，。？！ etc., matching the system Bopomofo input method. Symbols a
+    // programmer types inside Chinese text (@ # $ % & * + = _ ` |) stay
+    // half-width; switch to English mode for half-width punctuation.
+    Chinese,
+    // Everything stays literal and half-width, as upstream does.
+    English,
+};
+
 enum class ArrowStyle {
     MacOS, // ←/→ page the list, ⌥←/⌥→ move between characters
     Linux, // ←/→ move between characters, PageUp/PageDown page the list
@@ -21,7 +31,7 @@ enum class ArrowStyle {
 
 struct Preferences {
     inputer::KeyboardLayout layout = inputer::KeyboardLayout::Default;
-    bool fullWidthPunctuation = false;
+    PunctuationStyle punctuationStyle = PunctuationStyle::Chinese;
     inputer::ChinesePunctuationShortcut punctuationShortcut =
         inputer::ChinesePunctuationShortcut::ControlShift;
     bool spaceCandidateMode = false;

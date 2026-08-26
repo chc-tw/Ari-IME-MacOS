@@ -29,7 +29,8 @@ int main() {
         { // Nothing set: the Fcitx5 defaults, plus the macOS arrow style.
             const ari::Preferences p = ari::currentPreferences((__bridge void *)defaults);
             check(p.layout == inputer::KeyboardLayout::Default, "default layout");
-            check(!p.fullWidthPunctuation, "default half-width punctuation");
+            check(p.punctuationStyle == ari::PunctuationStyle::Chinese,
+                  "punctuation defaults to Chinese");
             check(p.punctuationShortcut ==
                       inputer::ChinesePunctuationShortcut::ControlShift,
                   "default punctuation shortcut is Ctrl+Shift");
@@ -43,7 +44,7 @@ int main() {
         { // Enums decode from the same strings the Fcitx5 config uses.
             [defaults setObject:@"Eten" forKey:@"KeyboardLayout"];
             [defaults setObject:@"AltShift" forKey:@"ChinesePunctuationShortcut"];
-            [defaults setBool:YES forKey:@"FullWidthPunctuation"];
+            [defaults setObject:@"English" forKey:@"PunctuationStyle"];
             [defaults setBool:NO forKey:@"AutoLearn"];
             [defaults setBool:YES forKey:@"ShowStatusLine"];
             [defaults setObject:@"Linux" forKey:@"CandidateArrowKeys"];
@@ -52,7 +53,8 @@ int main() {
             check(p.punctuationShortcut ==
                       inputer::ChinesePunctuationShortcut::AltShift,
                   "punctuation shortcut reads AltShift");
-            check(p.fullWidthPunctuation, "FullWidthPunctuation reads true");
+            check(p.punctuationStyle == ari::PunctuationStyle::English,
+                  "PunctuationStyle reads English");
             check(!p.autoLearn, "AutoLearn reads false");
             check(p.showStatusLine, "ShowStatusLine reads true");
             check(p.arrowStyle == ari::ArrowStyle::Linux,
@@ -67,6 +69,10 @@ int main() {
                   "unknown layout falls back to Default");
             check(p.arrowStyle == ari::ArrowStyle::MacOS,
                   "unknown arrow style falls back to macOS");
+            [defaults setObject:@"Nonsense" forKey:@"PunctuationStyle"];
+            check(ari::currentPreferences((__bridge void *)defaults)
+                          .punctuationStyle == ari::PunctuationStyle::Chinese,
+                  "unknown punctuation style falls back to Chinese");
         }
 
         [defaults removePersistentDomainForName:suite];

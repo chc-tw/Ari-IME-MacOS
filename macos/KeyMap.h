@@ -59,6 +59,12 @@ KeyTranslation translateKey(std::uint16_t keyCode,
                             std::uint32_t modifiers,
                             TranslationContext context = {});
 
+// Whether a bare punctuation key should produce its Chinese form while
+// composing Chinese. True for the punctuation marks Chinese text actually uses
+// (，。、；：？！「」『』（）……～), false for the symbols that stay half-width
+// inside Chinese text (@ # $ % & * + = _ ` |) and for anything else.
+bool isChinesePunctuationKey(std::string_view character);
+
 // Resolve a virtual key code against the user's *keyboard layout* (not the
 // active input method), applying only Shift and Caps Lock. Returns an empty
 // string for keys that produce no character.

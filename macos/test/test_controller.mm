@@ -262,9 +262,12 @@ int main() {
             Session s;
             s.type(@"su3");
             s.type(@"!");
-            checkEq(s.client.markedText, @"你!", "shift+1 gives a literal !");
+            // The character must be the shifted one; which form it takes then
+            // depends on the punctuation style (Chinese by default here).
+            checkEq(s.client.markedText, @"你！", "shift+1 resolves to !, shown as ！");
             s.type(@"@#");
-            checkEq(s.client.markedText, @"你!@#", "shifted symbols stay literal");
+            checkEq(s.client.markedText, @"你！@#",
+                    "shift+2 and shift+3 resolve, and stay half-width");
         }
 
         { // ⌘V pastes into the pre-edit while composing...
@@ -348,6 +351,42 @@ int main() {
             s.type(@"su3");
             check(s.send(kVK_Space, @" "), "space is handled while composing");
             checkEq(s.client.markedText, @"你 ", "space joins the composition");
+        }
+
+        { // Punctuation follows the system Bopomofo input method: the marks
+          // Chinese text uses take their Chinese form with no modifier...
+            Session s;
+            s.type(@"[");
+            checkEq(s.client.markedText, @"「", "[ gives 「");
+            s.type(@"]");
+            checkEq(s.client.markedText, @"「」", "] gives 」");
+            s.type(@"{");
+            checkEq(s.client.markedText, @"「」『", "shift+[ gives 『");
+            s.type(@"<>?!");
+            checkEq(s.client.markedText, @"「」『，。？！",
+                    "shifted , . / 1 give ，。？！");
+        }
+
+        { // ...while the symbols a programmer types stay half-width.
+            Session s;
+            s.type(@"@#$%&*+=");
+            checkEq(s.client.markedText, @"@#$%&*+=",
+                    "programmer symbols stay half-width");
+        }
+
+        { // Bopomofo finals are still Bopomofo, not punctuation.
+            Session s;
+            s.type(@"xu,4");
+            checkEq(s.client.markedText, @"列", "',' stays the ㄝ final");
+        }
+
+        { // English mode gives plain ASCII punctuation.
+            Session s;
+            s.send(kVK_ANSI_E, @"e",
+                   NSEventModifierFlagControl | NSEventModifierFlagOption);
+            s.type(@"[!");
+            checkEq(s.client.markedText, @"[!",
+                    "English mode keeps punctuation literal");
         }
 
         { // Command shortcuts are never swallowed.
