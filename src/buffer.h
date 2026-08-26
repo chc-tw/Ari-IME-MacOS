@@ -99,6 +99,14 @@ public:
     // Tracks the selected cell while selecting and the insertion point while
     // typing mid-string, so the caret never jumps to the end during insertion.
     int caretChar() const;
+    // Raw keys of the 注音 syllable currently being composed, or empty when the
+    // live tail is English or nothing is pending. Read-only: a frontend can
+    // render the reading (ㄏㄨㄢ) alongside the raw keys the pre-edit shows, so
+    // a mis-parsed English/Chinese boundary is visible while it is still cheap
+    // to correct. This is derived state; it changes nothing.
+    std::string pendingSyllable() const {
+        return token_ == Token::Chinese ? syl_ : std::string{};
+    }
     bool isEditing() const { return selecting_; }
     bool isPicking() const { return selecting_ && candOpen_; }
 
