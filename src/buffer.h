@@ -189,6 +189,10 @@ private:
     // syllable (e.g. "acer" + "u/6" -> acer螢). Peel it off when the remaining
     // prefix is empty or a real English word, so English typing isn't hijacked.
     bool tryPeelEnglish(char tone, KeyResult &out);
+    // Freeze the live run plus `prefix` into cells_, then start a fresh Chinese
+    // run from `syllable` (which already carries its tone, or a trailing space
+    // for 一聲). Shared by the initial-led peel passes.
+    void peelInto(const std::string &prefix, const std::string &syllable);
     bool tryPeelEnglishTone1(KeyResult &out);
     KeyResult handleSpace();
     KeyResult handleEnter();

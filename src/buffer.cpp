@@ -1275,6 +1275,26 @@ void Buffer::rankSelCands() {
               });
 }
 
+void Buffer::peelInto(const std::string &prefix, const std::string &syllable) {
+    freezeRun();
+    for (char c : prefix) {
+        cells_.push_back({false, std::string(1, c), {}});
+    }
+    const bool toneOne = !syllable.empty() && syllable.back() == ' ';
+    const std::string body = toneOne ? syllable.substr(0, syllable.size() - 1)
+                                     : syllable;
+    zhuyin_.feedSequence(body);
+    if (toneOne) {
+        zhuyin_.handleSpace();
+    }
+    runReadings_ = {syllable};
+    zhuyin_.promoteUserPhrases();
+    moveAutoCommit();
+    token_ = Token::Chinese;
+    englishBuf_.clear();
+    syl_.clear();
+}
+
 bool Buffer::tryPeelEnglish(char tone, KeyResult &out) {
     const std::string &buf = englishBuf_;
     // A punctuation-looking key may have been kept literal at a boundary because
@@ -1309,10 +1329,41 @@ bool Buffer::tryPeelEnglish(char tone, KeyResult &out) {
         return true;
     }
 
-    // Prefer the shortest trailing syllable (largest k) that actually forms a
-    // character: steal as few letters as possible from the English word. This
-    // keeps brand names like "acer" intact ("aceru/6" -> acer + 螢) without
-    // relying on a dictionary, which would miss non-words.
+    // A Chinese syllable normally starts with a 聲母, so a peel that begins at
+    // a medial or a final is starting mid-syllable and has almost certainly
+    // left the real initial stranded in the English run. Prefer the longest
+    // initial-led syllable that actually converts: "agentxu.6" peels "xu.6"
+    // and keeps "agent" whole, where taking the shortest peel would strand the
+    // ㄌ and leave "agentx".
+    //
+    // This runs before the shortest-syllable rule below rather than replacing
+    // it, so the cases that rule protects still reach it: "aceru/6" has an
+    // initial-led candidate in "ru/6", but ㄐㄩㄥˊ is not a character, so it
+    // falls through and "acer" survives. "HTTPsu3" peels "su3" and keeps
+    // "HTTP", because "psu3" starts at a final.
+    for (std::size_t k = 0; k < buf.size(); ++k) {
+        const std::string body = buf.substr(k);
+        if (inputer::zhuyinSlot(body[0]) != 0 ||
+            !inputer::isValidSyllable(body, /*allowTone=*/false)) {
+            continue;
+        }
+        const std::string prefix = buf.substr(0, k);
+        if (!canPeelEnglishBody(prefix, body)) {
+            continue;
+        }
+        std::string syllable = inputer::canonicalKeys(body);
+        syllable.push_back(tone);
+        if (!syllableConverts(syllable)) {
+            continue;
+        }
+        peelInto(prefix, syllable);
+        out = {true, false, {}, true};
+        return true;
+    }
+
+    // Otherwise prefer the shortest trailing syllable (largest k) that actually
+    // forms a character: steal as few letters as possible from the English
+    // word, without relying on a dictionary that would miss non-words.
     for (std::size_t k = buf.size(); k-- > 0;) {
         std::string body = buf.substr(k);
         if (!inputer::isValidSyllable(body, /*allowTone=*/false)) {
@@ -1373,6 +1424,29 @@ bool Buffer::tryPeelEnglishTone1(KeyResult &out) {
         token_ = Token::Chinese;
         englishBuf_.clear();
         syl_.clear();
+        out = {true, false, {}, true};
+        return true;
+    }
+
+    // Space is 一聲, and it needs the same initial-led rule as a typed tone —
+    // otherwise "shift" + ru8 + Space peels nothing at all and the whole run
+    // stays literal. Upstream has no general pass here, only the symbol-led one
+    // above, which is why the tone keys and Space behaved differently.
+    for (std::size_t k = 0; k < buf.size(); ++k) {
+        const std::string body = buf.substr(k);
+        if (inputer::zhuyinSlot(body[0]) != 0 ||
+            !inputer::isValidSyllable(body, /*allowTone=*/false)) {
+            continue;
+        }
+        const std::string prefix = buf.substr(0, k);
+        if (!canPeelEnglishBody(prefix, body)) {
+            continue;
+        }
+        const std::string syllable = inputer::canonicalKeys(body);
+        if (!syllableConvertsTone1(syllable)) {
+            continue;
+        }
+        peelInto(prefix, syllable + " ");
         out = {true, false, {}, true};
         return true;
     }

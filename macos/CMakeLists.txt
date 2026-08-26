@@ -178,6 +178,7 @@ elseif(BUILD_TESTING)
     ari_add_frontend_test(test_keymap test_keymap.mm)
     ari_add_frontend_test(test_preferences test_preferences.mm)
     ari_add_frontend_test(test_bopomofo test_bopomofo.mm)
+    ari_add_frontend_test(test_mixed_input test_mixed_input.mm)
     ari_add_frontend_test(test_controller test_controller.mm)
 
     ari_add_core_test(test_buffer test_buffer.cpp)
