@@ -21,6 +21,7 @@ NSString *const kChinesePunctuationShortcut = @"ChinesePunctuationShortcut";
 NSString *const kSpaceCandidateMode = @"SpaceCandidateMode";
 NSString *const kAutoLearn = @"AutoLearn";
 NSString *const kShowStatusLine = @"ShowStatusLine";
+NSString *const kShowBopomofo = @"ShowBopomofo";
 NSString *const kCandidateArrowKeys = @"CandidateArrowKeys";
 
 bool boolOr(NSUserDefaults *defaults, NSString *key, bool fallback) {
@@ -67,6 +68,8 @@ Preferences currentPreferences(void *defaultsOrNil) {
     preferences.autoLearn = boolOr(defaults, kAutoLearn, preferences.autoLearn);
     preferences.showStatusLine =
         boolOr(defaults, kShowStatusLine, preferences.showStatusLine);
+    preferences.showBopomofo =
+        boolOr(defaults, kShowBopomofo, preferences.showBopomofo);
 
     NSString *arrows = [defaults stringForKey:kCandidateArrowKeys];
     if ([arrows isEqualToString:@"Linux"]) {

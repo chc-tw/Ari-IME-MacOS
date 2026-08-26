@@ -37,6 +37,10 @@ struct Preferences {
     bool spaceCandidateMode = false;
     bool autoLearn = true;
     bool showStatusLine = false;
+    // Show the reading of the syllable being composed (ㄏㄨㄢ) next to the raw
+    // keys the pre-edit shows. On by default: it is what makes a mis-parsed
+    // English/Chinese boundary visible while typing.
+    bool showBopomofo = true;
     ArrowStyle arrowStyle = ArrowStyle::MacOS;
 };
 

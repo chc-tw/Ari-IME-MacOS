@@ -20,6 +20,7 @@
 
 #import "AriCandidateWindow.h"
 #import "AriHUD.h"
+#import "AriBopomofo.h"
 #import "AriPreferences.h"
 #import "KeyMap.h"
 
@@ -160,6 +161,7 @@ AriCandidateWindow *sharedCandidateWindow() {
     // Mirrors the Fcitx5 addon's ShowStatusLine option; off by default, as
     // there.
     BOOL _showStatusLine;
+    BOOL _showBopomofo;
     // Set once we have told the user the 注音 engine failed to load.
     BOOL _engineErrorNotified;
 }
@@ -208,6 +210,7 @@ AriCandidateWindow *sharedCandidateWindow() {
     // approach the Fcitx5 frontend takes with its addon config.
     const ari::Preferences preferences = ari::currentPreferences();
     _showStatusLine = preferences.showStatusLine;
+    _showBopomofo = preferences.showBopomofo;
     if (self.buffer.setKeyboardLayout(preferences.layout)) {
         [self showTransient:toNSString(std::string("鍵盤 ") +
                                        inputer::keyboardLayoutName(preferences.layout))
@@ -369,8 +372,23 @@ AriCandidateWindow *sharedCandidateWindow() {
 - (void)showPanelForClient:(id)sender preedit:(const std::string &)preedit {
     const std::vector<std::string> candidates = self.buffer.candidates();
     const bool editing = self.buffer.isEditing();
+    // The reading of the syllable in progress. The pre-edit shows the raw keys,
+    // because they may still turn out to be English; this shows what Ari is
+    // currently making of them.
+    NSString *reading = @"";
+    if (_showBopomofo && !editing) {
+        reading = toNSString(ari::readingForKeys(self.buffer.pendingSyllable()));
+    }
     if (candidates.empty() && !editing) {
-        [sharedCandidateWindow() hide];
+        if (reading.length == 0) {
+            [sharedCandidateWindow() hide];
+            return;
+        }
+        [sharedCandidateWindow() showCandidates:@[]
+                                      highlight:-1
+                                          auxUp:reading
+                                        auxDown:@""
+                                         atRect:[self caretRectForClient:sender]];
         return;
     }
 
