@@ -41,6 +41,9 @@ struct Preferences {
     // keys the pre-edit shows. On by default: it is what makes a mis-parsed
     // English/Chinese boundary visible while typing.
     bool showBopomofo = true;
+    // Uppercase letters are English, never 注音. On by default: a capital in
+    // the middle of Chinese is nearly always an acronym or an identifier.
+    bool uppercaseIsEnglish = true;
     ArrowStyle arrowStyle = ArrowStyle::MacOS;
 };
 

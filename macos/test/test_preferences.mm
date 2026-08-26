@@ -39,6 +39,8 @@ int main() {
             check(!p.showStatusLine, "ShowStatusLine off by default");
             check(p.arrowStyle == ari::ArrowStyle::MacOS,
                   "arrows follow macOS convention by default");
+            check(p.showBopomofo, "ShowBopomofo on by default");
+            check(p.uppercaseIsEnglish, "UppercaseIsEnglish on by default");
         }
 
         { // Enums decode from the same strings the Fcitx5 config uses.
@@ -48,6 +50,7 @@ int main() {
             [defaults setBool:NO forKey:@"AutoLearn"];
             [defaults setBool:YES forKey:@"ShowStatusLine"];
             [defaults setObject:@"Linux" forKey:@"CandidateArrowKeys"];
+            [defaults setBool:NO forKey:@"UppercaseIsEnglish"];
             const ari::Preferences p = ari::currentPreferences((__bridge void *)defaults);
             check(p.layout == inputer::KeyboardLayout::Eten, "layout reads Eten");
             check(p.punctuationShortcut ==
@@ -59,6 +62,7 @@ int main() {
             check(p.showStatusLine, "ShowStatusLine reads true");
             check(p.arrowStyle == ari::ArrowStyle::Linux,
                   "CandidateArrowKeys reads Linux");
+            check(!p.uppercaseIsEnglish, "UppercaseIsEnglish reads false");
         }
 
         { // Garbage falls back instead of throwing the input method off.

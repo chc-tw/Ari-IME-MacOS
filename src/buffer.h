@@ -128,6 +128,18 @@ public:
         punctuationShortcut_ = shortcut;
         return true;
     }
+    // Treat an uppercase letter as English text, never as a 注音 key. Off by
+    // default, matching upstream, where the layout folds case. The macOS
+    // frontend turns it on: a capital in the middle of Chinese is nearly always
+    // an acronym or an identifier (API, UI, HTTP), and reading it as Bopomofo
+    // is what strands the following syllable.
+    bool setUppercaseIsEnglish(bool on) {
+        if (uppercaseIsEnglish_ == on) {
+            return false;
+        }
+        uppercaseIsEnglish_ = on;
+        return true;
+    }
     bool setSpaceCandidateMode(bool on) {
         if (spaceCandidateMode_ == on) {
             return false;
@@ -193,6 +205,10 @@ private:
     // run from `syllable` (which already carries its tone, or a trailing space
     // for 一聲). Shared by the initial-led peel passes.
     void peelInto(const std::string &prefix, const std::string &syllable);
+    // Whether a trailing English body may be re-read as a syllable. With
+    // uppercaseIsEnglish_ set, one that contains a capital may not: the letters
+    // are English, so a tone must not claim them back.
+    bool bodyIsPeelable(const std::string &body) const;
     bool tryPeelEnglishTone1(KeyResult &out);
     KeyResult handleSpace();
     KeyResult handleEnter();
@@ -304,6 +320,7 @@ private:
     inputer::ChinesePunctuationShortcut punctuationShortcut_ =
         inputer::ChinesePunctuationShortcut::ControlShift;
     bool spaceCandidateMode_ = false;
+    bool uppercaseIsEnglish_ = false;
     bool learningAllowed_ = true;
     inputer::KeyboardLayout layout_ = inputer::KeyboardLayout::Default;
     Token token_ = Token::Chinese;

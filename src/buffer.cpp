@@ -969,6 +969,13 @@ KeyResult Buffer::handleChar(char c, bool literal) {
         return {true, false, {}, true};
     }
 
+    // An uppercase letter is English text, not a 注音 key. It takes the same
+    // literal path as the keypad below: end any syllable in progress and append.
+    if (uppercaseIsEnglish_ &&
+        std::isupper(static_cast<unsigned char>(c))) {
+        literal = true;
+    }
+
     // Literal keys (numeric keypad) are digits/symbols, never 注音: they end any
     // in-progress syllable and append to the English tail. (Main-row digits still
     // go through 注音 below — only the keypad sets `literal`.)
@@ -1275,6 +1282,18 @@ void Buffer::rankSelCands() {
               });
 }
 
+bool Buffer::bodyIsPeelable(const std::string &body) const {
+    if (!uppercaseIsEnglish_) {
+        return true;
+    }
+    for (const char c : body) {
+        if (std::isupper(static_cast<unsigned char>(c))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void Buffer::peelInto(const std::string &prefix, const std::string &syllable) {
     freezeRun();
     for (char c : prefix) {
@@ -1305,6 +1324,7 @@ bool Buffer::tryPeelEnglish(char tone, KeyResult &out) {
         std::string prefix = buf.substr(0, k);
         std::string body = buf.substr(k);
         if (!inputer::isValidSyllable(body, /*allowTone=*/false) ||
+            !bodyIsPeelable(body) ||
             !canPeelSymbolLedFromEnglish(prefix, body)) {
             continue;
         }
@@ -1344,7 +1364,8 @@ bool Buffer::tryPeelEnglish(char tone, KeyResult &out) {
     for (std::size_t k = 0; k < buf.size(); ++k) {
         const std::string body = buf.substr(k);
         if (inputer::zhuyinSlot(body[0]) != 0 ||
-            !inputer::isValidSyllable(body, /*allowTone=*/false)) {
+            !inputer::isValidSyllable(body, /*allowTone=*/false) ||
+            !bodyIsPeelable(body)) {
             continue;
         }
         const std::string prefix = buf.substr(0, k);
@@ -1366,7 +1387,8 @@ bool Buffer::tryPeelEnglish(char tone, KeyResult &out) {
     // word, without relying on a dictionary that would miss non-words.
     for (std::size_t k = buf.size(); k-- > 0;) {
         std::string body = buf.substr(k);
-        if (!inputer::isValidSyllable(body, /*allowTone=*/false)) {
+        if (!inputer::isValidSyllable(body, /*allowTone=*/false) ||
+            !bodyIsPeelable(body)) {
             continue;
         }
         std::string prefix = buf.substr(0, k);
@@ -1404,6 +1426,7 @@ bool Buffer::tryPeelEnglishTone1(KeyResult &out) {
         std::string prefix = buf.substr(0, k);
         std::string body = buf.substr(k);
         if (!inputer::isValidSyllable(body, /*allowTone=*/false) ||
+            !bodyIsPeelable(body) ||
             !canPeelSymbolLedFromEnglish(prefix, body)) {
             continue;
         }
@@ -1435,7 +1458,8 @@ bool Buffer::tryPeelEnglishTone1(KeyResult &out) {
     for (std::size_t k = 0; k < buf.size(); ++k) {
         const std::string body = buf.substr(k);
         if (inputer::zhuyinSlot(body[0]) != 0 ||
-            !inputer::isValidSyllable(body, /*allowTone=*/false)) {
+            !inputer::isValidSyllable(body, /*allowTone=*/false) ||
+            !bodyIsPeelable(body)) {
             continue;
         }
         const std::string prefix = buf.substr(0, k);

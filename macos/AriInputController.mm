@@ -218,6 +218,7 @@ AriCandidateWindow *sharedCandidateWindow() {
     }
     self.buffer.setChinesePunctuationShortcut(preferences.punctuationShortcut);
     self.buffer.setSpaceCandidateMode(preferences.spaceCandidateMode);
+    self.buffer.setUppercaseIsEnglish(preferences.uppercaseIsEnglish);
 
     // macOS reports secure input globally rather than per field, so Ari takes
     // the conservative reading: while any application has secure input on,

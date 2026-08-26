@@ -106,3 +106,34 @@ FAIL catsu3 keeps cats and peels one Chinese syllable
 兩個必須保住的案例。
 
 **合併風險**：中。若上游日後改寫 `tryPeelEnglish`，需要人工重新套用。
+
+---
+
+## D3 — `setUppercaseIsEnglish()`：大寫字母恆為英文
+
+**檔案**：`src/buffer.h`（新增設定項與 `bodyIsPeelable()`）、`src/buffer.cpp`
+**類型**：新增設定項，**預設關閉＝維持上游行為**
+**衝擊**：`test_buffer` 零額外變動（上游測試不會打開此選項）
+
+### 上游行為
+
+鍵盤配列表折疊大小寫，`zhuyinSlot('S') == zhuyinSlot('s')`，因此 `SU3` 與
+`su3` 同樣轉成「你」。
+
+### 改動
+
+新增 `setUppercaseIsEnglish(bool)`（預設 `false`）。開啟時，大寫字母走既有的
+`literal` 路徑（原本只有數字鍵盤在用）：結束目前音節、進入英文串。
+
+**同時必須擋住剝離**：只把大寫送進英文串是不夠的——聲調鍵會再把它們剝回來，
+因為 `isValidSyllable` 同樣折疊大小寫。`SU` + `3` 於是又變回「你」。
+新增 `bodyIsPeelable()`，開啟此選項時拒絕含大寫字母的候選切法，並在四個剝離
+迴圈中套用。
+
+### 為什麼
+
+中文之中出現大寫幾乎必然是縮寫或識別字（API、UI、HTTP、SDK），把它讀成注音
+正是導致後續音節聲母被吞掉的原因之一。macOS 前端預設開啟
+（`UppercaseIsEnglish`）。
+
+**合併風險**：低。新增為主；四個迴圈各多一個條件。

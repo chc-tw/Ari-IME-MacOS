@@ -389,6 +389,19 @@ int main() {
                     "English mode keeps punctuation literal");
         }
 
+        { // Uppercase is English, never Bopomofo: acronyms and identifiers
+          // survive, and the syllable after them keeps its initial.
+            Session s;
+            s.type(@"SU3");
+            checkEq(s.client.markedText, @"SU3", "uppercase stays literal");
+        }
+
+        { // Lowercase is unaffected.
+            Session s;
+            s.type(@"su3");
+            checkEq(s.client.markedText, @"你", "lowercase still composes");
+        }
+
         { // Command shortcuts are never swallowed.
             Session s;
             check(!s.send(kVK_ANSI_C, @"c", NSEventModifierFlagCommand),
