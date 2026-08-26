@@ -443,7 +443,19 @@ AriCandidateWindow *sharedCandidateWindow() {
     NSRect rect = NSZeroRect;
     if ([sender respondsToSelector:@selector(attributesForCharacterIndex:
                                                     lineHeightRectangle:)]) {
-        [sender attributesForCharacterIndex:0 lineHeightRectangle:&rect];
+        // The index is an offset into the marked text, so index 0 pins the
+        // panel to where the composition started and leaves it there while the
+        // text grows. Ask about the caret instead, and fall back to the start
+        // for clients that only answer for index 0.
+        const std::string preedit = self.buffer.preeditText();
+        const NSUInteger caret =
+            utf16OffsetForGrapheme(preedit, self.buffer.caretChar());
+        if (caret > 0) {
+            [sender attributesForCharacterIndex:caret lineHeightRectangle:&rect];
+        }
+        if (NSIsEmptyRect(rect)) {
+            [sender attributesForCharacterIndex:0 lineHeightRectangle:&rect];
+        }
     }
     if (!NSIsEmptyRect(rect)) {
         _lastCaretRect = rect;

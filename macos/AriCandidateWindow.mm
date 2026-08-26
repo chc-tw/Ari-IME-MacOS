@@ -39,6 +39,8 @@
     _label.font = [NSFont systemFontOfSize:15];
     _label.translatesAutoresizingMaskIntoConstraints = NO;
     _label.allowsDefaultTighteningForTruncation = NO;
+    _label.maximumNumberOfLines = 0;
+    _label.lineBreakMode = NSLineBreakByClipping;
     [background addSubview:_label];
     [NSLayoutConstraint activateConstraints:@[
         [_label.leadingAnchor constraintEqualToAnchor:background.leadingAnchor constant:10],
@@ -96,8 +98,15 @@
     }
 
     _label.attributedStringValue = text;
-    [_label sizeToFit];
-    const NSSize fit = _label.fittingSize;
+    // Measure the string itself. Asking the label for its fitting size gives
+    // the size for whatever width it currently has, which is last frame's
+    // width — so a panel that is about to get wider reports a wrapped, taller
+    // line and the box comes out with a spare row.
+    const NSRect bounds =
+        [text boundingRectWithSize:NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX)
+                           options:NSStringDrawingUsesLineFragmentOrigin];
+    const NSSize fit =
+        NSMakeSize(ceil(NSWidth(bounds)) + 2, ceil(NSHeight(bounds)));
     NSRect frame = NSMakeRect(NSMinX(caretRect), 0, fit.width + 20, fit.height + 16);
     // Prefer below the caret; flip above when the panel would run off-screen.
     frame.origin.y = NSMinY(caretRect) - frame.size.height - 4;
