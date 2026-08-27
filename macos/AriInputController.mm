@@ -162,6 +162,11 @@ AriCandidateWindow *sharedCandidateWindow() {
     // there.
     BOOL _showStatusLine;
     BOOL _showBopomofo;
+    // ↑ adjudication: the readings of the token under the caret, and which
+    // character they belong to. Empty when the list is not open.
+    std::vector<Buffer::BoundaryAlternative> _alternatives;
+    int _adjudicating;
+    int _adjudicationHighlight;
     // Set once we have told the user the 注音 engine failed to load.
     BOOL _engineErrorNotified;
 }
@@ -331,6 +336,32 @@ AriCandidateWindow *sharedCandidateWindow() {
         return NO;
     }
 
+    // ↑ asks which reading of the keys was meant. Some boundaries cannot be
+    // decided by rule — "fig4" is a figure label or it is fi + 是 — so the
+    // alternatives are offered instead of guessed. ↓ stays purely about which
+    // Chinese character; ↑ is about whether it should be Chinese at all.
+    if (!_alternatives.empty()) {
+        if ([self handleAdjudicationKey:translated.key client:sender]) {
+            return YES;
+        }
+    }
+    if (translated.key.sym() == FcitxKey_Up && !self.buffer.isPicking() &&
+        !self.buffer.preeditText().empty() &&
+        (modifiers & ~static_cast<std::uint32_t>(ari::ModCapsLock)) == 0) {
+        // Same positioning as ↓: step the caret onto the character in question,
+        // which also freezes the live tail into cells so it can be examined.
+        self.buffer.handleKey(fcitx::Key(FcitxKey_Left));
+        const int target = self.buffer.caretChar();
+        auto alternatives = self.buffer.boundaryAlternatives(target);
+        if (alternatives.size() > 1) {
+            _alternatives = std::move(alternatives);
+            _adjudicating = target;
+            [self updateUIForClient:sender];
+            return YES;
+        }
+        // Nothing to decide: let ↑ mean what it always did.
+    }
+
     // Paging stops at both ends. On a list of a few dozen homophones the page
     // you want is often the last one, so make the ends meet: pressing back from
     // the first page lands on the last, and forward from the last returns to
@@ -451,6 +482,23 @@ AriCandidateWindow *sharedCandidateWindow() {
 }
 
 - (void)showPanelForClient:(id)sender preedit:(const std::string &)preedit {
+    // The adjudication list replaces the candidate panel while it is open: it
+    // is answering a different question, so it must not look like a page of
+    // homophones sitting on top of one.
+    if (!_alternatives.empty()) {
+        NSMutableArray<NSString *> *items =
+            [NSMutableArray arrayWithCapacity:_alternatives.size()];
+        for (const auto &alternative : _alternatives) {
+            [items addObject:toNSString(alternative.english + alternative.chinese)];
+        }
+        [sharedCandidateWindow() showCandidates:items
+                                      highlight:_adjudicationHighlight
+                                          auxUp:@"英文 / 中文"
+                                        auxDown:@""
+                                         atRect:[self caretRectForClient:sender]];
+        return;
+    }
+
     const std::vector<std::string> candidates = self.buffer.candidates();
     const bool editing = self.buffer.isEditing();
     // The reading of the syllable in progress. The pre-edit shows the raw keys,
@@ -706,6 +754,43 @@ AriCandidateWindow *sharedCandidateWindow() {
 - (void)showPreferences:(id)sender {
     (void)sender;
     [[AriPreferencesWindow shared] show];
+}
+
+// Keys while the adjudication list is open. Returns NO for anything it does
+// not claim, so the rest of the input path still sees it.
+- (BOOL)handleAdjudicationKey:(const fcitx::Key &)key client:(id)sender {
+    const fcitx::KeySym sym = key.sym();
+    const int count = static_cast<int>(_alternatives.size());
+
+    if (sym == FcitxKey_Escape) {
+        _alternatives.clear();
+        [self updateUIForClient:sender];
+        return YES;
+    }
+    if (sym >= FcitxKey_1 && sym < FcitxKey_1 + count) {
+        [self applyAlternative:static_cast<int>(sym - FcitxKey_1) client:sender];
+        return YES;
+    }
+    if (sym == FcitxKey_Up || sym == FcitxKey_Down) {
+        _adjudicationHighlight =
+            (_adjudicationHighlight + (sym == FcitxKey_Down ? 1 : count - 1)) % count;
+        [self updateUIForClient:sender];
+        return YES;
+    }
+    if (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter) {
+        [self applyAlternative:_adjudicationHighlight client:sender];
+        return YES;
+    }
+    return NO;
+}
+
+- (void)applyAlternative:(int)choice client:(id)sender {
+    const KeyResult result =
+        self.buffer.chooseBoundaryAlternative(_adjudicating, choice);
+    _alternatives.clear();
+    _adjudicationHighlight = 0;
+    [self applyResult:result client:sender];
+    [self updateUIForClient:sender];
 }
 
 - (int)ari_caretChar {

@@ -484,6 +484,54 @@ int main() {
                     "← then ↓ moves to the character before it");
         }
 
+        { // ↑ asks which reading of an ambiguous run was meant, and picking the
+          // all-English one gives the keys back exactly as typed.
+            Session s;
+            s.type(@"fig4");
+            checkEq(s.client.markedText, @"fi是", "fig4 reads as fi + 是");
+            s.send(kVK_UpArrow, @"");
+            check(!s.buffer_isPicking(),
+                  "↑ opens the adjudication list, not the candidate window");
+            s.type(@"1");
+            checkEq(s.client.markedText, @"fig4", "the first entry is the keys as typed");
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.committed, @"fig4", "and it commits as English");
+        }
+
+        { // The Chinese reading is still reachable from the same list.
+            Session s;
+            s.type(@"fig4");
+            s.send(kVK_UpArrow, @"");
+            s.type(@"2");
+            checkEq(s.client.markedText, @"fi是", "the second entry keeps 是");
+        }
+
+        { // Esc leaves the line exactly as it was.
+            Session s;
+            s.type(@"fig4");
+            s.send(kVK_UpArrow, @"");
+            s.send(kVK_Escape, @"\x1b");
+            checkEq(s.client.markedText, @"fi是", "Esc changes nothing");
+        }
+
+        { // A clean syllable is ambiguous too — it could have been meant as the
+          // keys themselves — so ↑ offers those, replacing the raw-key entry
+          // that used to be buried at the end of the候選 list.
+            Session s;
+            s.type(@"su3");
+            checkEq(s.client.markedText, @"你", "su3 reads as 你");
+            s.send(kVK_UpArrow, @"");
+            s.type(@"1");
+            checkEq(s.client.markedText, @"su3", "↑ then 1 gives the keys back");
+        }
+
+        { // Plain English has no reading to choose between, so ↑ falls through.
+            Session s;
+            s.type(@"README");
+            s.send(kVK_UpArrow, @"");
+            checkEq(s.client.markedText, @"README", "↑ leaves English alone");
+        }
+
         { // Command shortcuts are never swallowed.
             Session s;
             check(!s.send(kVK_ANSI_C, @"c", NSEventModifierFlagCommand),

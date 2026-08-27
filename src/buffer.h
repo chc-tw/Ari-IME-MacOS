@@ -106,6 +106,21 @@ public:
     // Tracks the selected cell while selecting and the insertion point while
     // typing mid-string, so the caret never jumps to the end during insertion.
     int caretChar() const;
+    // One reading of the keys around a character: how many of them stay
+    // English, and what the rest becomes. Some boundaries are genuinely
+    // ambiguous — "fig4" is a figure label or it is fi + 是, and only the user
+    // knows which — so the choice is offered rather than guessed.
+    struct BoundaryAlternative {
+        std::string english; // the literal prefix that stays English
+        std::string chinese; // what the remaining keys convert to ("" = all English)
+        std::string keys;    // the whole run of keys this alternative covers
+    };
+    // Readings of the token containing the character at `idx`, most English
+    // first. Empty when that character is not a converted syllable.
+    std::vector<BoundaryAlternative> boundaryAlternatives(int idx) const;
+    // Apply one of them, replacing the token's cells.
+    KeyResult chooseBoundaryAlternative(int idx, int choice);
+
     bool isEditing() const { return selecting_; }
     bool isPicking() const { return selecting_ && candOpen_; }
 

@@ -2955,3 +2955,112 @@ KeyResult Buffer::handlePicking(const fcitx::Key &key) {
     caretPos_ = selCursor_;
     return {false, false, {}, true};
 }
+
+// ---------------------------------------------------------------------------
+// Boundary alternatives (M6)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// The character a syllable converts to, or empty when it converts to nothing.
+std::string syllableCharacter(const std::string &canonicalKeys) {
+    static Zhuyin *probe = nullptr;
+    static ari_ime::KeyboardLayout probeLayout = ari_ime::KeyboardLayout::Default;
+    probe = probeForCurrentLayout(probe, probeLayout);
+    probe->feedSequence(canonicalKeys);
+    if (!probe->hasConverted() || probe->hasBopomofo()) {
+        return {};
+    }
+    std::string text = probe->preedit();
+    return containsHanCharacter(text) ? text : std::string{};
+}
+
+} // namespace
+
+std::vector<Buffer::BoundaryAlternative>
+Buffer::boundaryAlternatives(int idx) const {
+    std::vector<BoundaryAlternative> alternatives;
+    if (idx < 0 || idx >= static_cast<int>(cells_.size()) ||
+        !cells_[idx].chinese) {
+        return alternatives;
+    }
+
+    // The token is this character plus the literal English cells immediately
+    // before it — the run whose split is in question.
+    int start = idx;
+    while (start > 0 && !cells_[start - 1].chinese &&
+           cells_[start - 1].text.size() == 1 &&
+           static_cast<unsigned char>(cells_[start - 1].text[0]) < 0x80 &&
+           std::isalnum(static_cast<unsigned char>(cells_[start - 1].text[0]))) {
+        --start;
+    }
+
+    std::string keys;
+    for (int i = start; i < idx; ++i) {
+        keys += cells_[i].text;
+    }
+    const Cell &chinese = cells_[idx];
+    keys += chinese.typed.empty() ? chinese.reading : chinese.typed;
+    if (keys.empty()) {
+        return alternatives;
+    }
+
+    // Every way of splitting the run: all English first, then progressively
+    // more of it read as a syllable.
+    alternatives.push_back({keys, {}, keys});
+    for (std::size_t k = keys.size(); k-- > 0;) {
+        const std::string body = keys.substr(k);
+        // Without this the canonicaliser quietly drops the keys it cannot
+        // place and reports a syllable the user never typed — "catsu3" would
+        // offer "ca" + 你, which spends the t on nothing.
+        if (!ari_ime::isValidSyllable(body, /*allowTone=*/true) ||
+            !bodyIsPeelable(body)) {
+            continue;
+        }
+        const std::string character =
+            syllableCharacter(ari_ime::canonicalKeys(body));
+        if (character.empty()) {
+            continue;
+        }
+        alternatives.push_back({keys.substr(0, k), character, keys});
+    }
+    return alternatives;
+}
+
+KeyResult Buffer::chooseBoundaryAlternative(int idx, int choice) {
+    const auto alternatives = boundaryAlternatives(idx);
+    if (choice < 0 || choice >= static_cast<int>(alternatives.size())) {
+        return {false, false, {}, false};
+    }
+    const BoundaryAlternative &chosen = alternatives[static_cast<std::size_t>(choice)];
+
+    int start = idx;
+    while (start > 0 && !cells_[start - 1].chinese &&
+           cells_[start - 1].text.size() == 1 &&
+           static_cast<unsigned char>(cells_[start - 1].text[0]) < 0x80 &&
+           std::isalnum(static_cast<unsigned char>(cells_[start - 1].text[0]))) {
+        --start;
+    }
+
+    std::vector<Cell> replacement;
+    for (char c : chosen.english) {
+        replacement.push_back({false, std::string(1, c), {}, {}});
+    }
+    if (!chosen.chinese.empty()) {
+        const std::string body = chosen.keys.substr(chosen.english.size());
+        replacement.push_back({true, chosen.chinese, ari_ime::canonicalKeys(body),
+                               body, /*locked=*/true});
+    }
+
+    cells_.erase(cells_.begin() + start, cells_.begin() + idx + 1);
+    cells_.insert(cells_.begin() + start, replacement.begin(), replacement.end());
+
+    runLoaded_ = false;
+    candOpen_ = false;
+    selCands_.clear();
+    selPage_ = 0;
+    highlight_ = 0;
+    caretPos_ = start + static_cast<int>(replacement.size());
+    selCursor_ = caretPos_ - 1;
+    return {true, false, {}, true};
+}

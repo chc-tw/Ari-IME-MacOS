@@ -250,3 +250,49 @@ t "ㄔ"                                                ← 整個尾端只剩一
 **這個歧義正是 M6 要處理的問題**（見 `docs/macos-port-plan.md` §12）。
 M6 的偏好記憶一旦存在，這裡就能有更好的答案：記得使用者在這個組合上
 選過什麼，就能在第一個鍵時做出有根據的預測，而不是猜。
+
+---
+
+## D6 — `boundaryAlternatives()` / `chooseBoundaryAlternative()`（M6 第一部分）
+
+**檔案**：`src/buffer.h`、`src/buffer.cpp`（**新增**兩個方法與一個結構）
+**類型**：新增 API，**不改變任何既有行為**
+**衝擊**：`test_buffer` 19904 checks 零額外變動
+
+### 為什麼
+
+有一類邊界**不是規則判斷錯誤，而是輸入本身有歧義**——`fig4` 是圖片標號，
+也可以是 `fi` + `是`，只有使用者知道要哪一個。啟發式規則只能挑一邊。
+
+### 改動
+
+```cpp
+struct BoundaryAlternative {
+    std::string english; // 保持英文的字面前綴
+    std::string chinese; // 其餘按鍵轉換成的字（空 = 全部英文）
+    std::string keys;    // 這個切法涵蓋的完整按鍵串
+};
+std::vector<BoundaryAlternative> boundaryAlternatives(int idx) const;
+KeyResult chooseBoundaryAlternative(int idx, int choice);
+```
+
+`boundaryAlternatives()` 從指定的中文格往左收集連續的英文格，重建原始按鍵串，
+再列舉所有「合法音節且真的成字」的切法，英文最多者在前。
+
+實測：
+
+```
+fig4    → [0] fig4        [1] fi + 是
+su3     → [0] su3         [1] s + 以      [2] 你
+catsu3  → [0] catsu3      [1] cats + 以   [2] cat + 你
+```
+
+**必須先檢查 `isValidSyllable`**：否則正規化器會默默丟掉放不進去的鍵，
+回報一個使用者根本沒打的音節（`catsu3` 會冒出 `ca` + `你`，那個 `t` 憑空消失）。
+
+### 尚未實作（M6 剩餘部分）
+
+偏好記憶（記住這個組合選過什麼）與設定頁的檢視／刪除。
+記憶範圍先做純全域，理由見 `docs/macos-port-plan.md` §12。
+
+**合併風險**：低。純新增，不修改既有函式。
