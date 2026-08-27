@@ -145,3 +145,41 @@ FAIL catsu3 keeps cats and peels one Chinese syllable
 （`UppercaseIsEnglish`）。
 
 **合併風險**：低。新增為主；四個迴圈各多一個條件。
+
+---
+
+## D4 — 還原原始鍵時保留一聲的空白
+
+**檔案**：`src/buffer.cpp`（`revertCellToEnglish()`、`loadCellCandidates()`）
+**類型**：**行為變更**（bug 修復）
+**衝擊**：`test_buffer` 19904 checks 零額外變動
+
+### 上游行為
+
+```cpp
+(void)tone1; // 一聲 has no key of its own; the body alone explodes
+```
+
+把中文字還原成原始鍵時，一聲（Space）被丟棄：`c8 `（哈）還原成 `c8`。
+
+### 改動
+
+`revertCellToEnglish()` 在 `tone1` 時補回空白；`loadCellCandidates()` 的
+`原始鍵` 候選標籤也一併補上，讓顯示與實際還原結果一致。
+
+### 為什麼
+
+在 Ari 的模型裡，Space **就是**使用者實際按下的一聲鍵。「還原成原始鍵」若吐回
+`c8` 而不是 `c8 `，還原出來的就不是使用者打的東西，而且下一個按鍵會跟這個未
+結束的音節重新合併。
+
+實測：
+
+| 輸入 | 上游還原 | 本 fork 還原 |
+|------|---------|-------------|
+| `su3`（三聲）| `su3` | `su3` |
+| `c8`+Space（一聲）| `c8` ❌ | `c8 ` ✅ |
+| `ru8`+Space（一聲）| `ru8` ❌ | `ru8 ` ✅ |
+| `cj06`（二聲）| `cj06` | `cj06` |
+
+**合併風險**：低。兩處小改動，皆在既有函式內。

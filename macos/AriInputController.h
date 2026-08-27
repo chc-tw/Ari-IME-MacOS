@@ -16,6 +16,8 @@
 @interface AriInputController (Testing)
 - (BOOL)ari_isPicking;
 - (NSString *)ari_selectedCharacter;
+- (int)ari_candidatePage;
+- (int)ari_candidatePageCount;
 @end
 
 #endif // ARI_MACOS_INPUT_CONTROLLER_H

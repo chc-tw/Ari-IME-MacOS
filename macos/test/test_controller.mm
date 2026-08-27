@@ -166,6 +166,8 @@ struct Session {
     }
 
     bool buffer_isPicking() { return [controller ari_isPicking]; }
+    int page() { return [controller ari_candidatePage]; }
+    int pageCount() { return [controller ari_candidatePageCount]; }
     NSString *selectedCharacter() { return [controller ari_selectedCharacter]; }
 
     // Type ASCII through the same path a keyboard would: real key codes, and
@@ -423,6 +425,22 @@ int main() {
             s.send(kVK_DownArrow, @"");
             checkEq(s.selectedCharacter(), @"你",
                     "the character behind the caret is the one edited");
+        }
+
+        { // Candidate paging wraps: the page you want is often the last one.
+            Session s;
+            s.type(@"su3");
+            s.send(kVK_DownArrow, @"");
+            check(s.pageCount() > 1, "su3 has more than one candidate page");
+            checkEq([NSString stringWithFormat:@"%d", s.page()], @"1",
+                    "starts on the first page");
+            s.send(kVK_LeftArrow, @"");   // ← pages back, and should wrap
+            checkEq([NSString stringWithFormat:@"%d", s.page()],
+                    [NSString stringWithFormat:@"%d", s.pageCount()],
+                    "back from the first page lands on the last");
+            s.send(kVK_RightArrow, @"");  // → from the last wraps to the first
+            checkEq([NSString stringWithFormat:@"%d", s.page()], @"1",
+                    "forward from the last page returns to the first");
         }
 
         { // Command shortcuts are never swallowed.

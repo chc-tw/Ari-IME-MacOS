@@ -1986,8 +1986,11 @@ void Buffer::buildSelCands() {
     // marks it; picking it explodes the cell instead of choosing a homophone.
     // Prefer the keys as actually typed so an out-of-order syllable (e.g. "ox"
     // for ㄜ) shows itself instead of the canonicalized form ("eo").
-    std::string raw = typedBody(cells_[selCursor_].typed,
-                                cells_[selCursor_].reading).first;
+    auto [raw, rawTone1] = typedBody(cells_[selCursor_].typed,
+                                     cells_[selCursor_].reading);
+    if (rawTone1) {
+        raw.push_back(' '); // the 一聲 Space, as revertCellToEnglish restores it
+    }
     if (!raw.empty()) {
         selCands_.push_back(
             {raw, "原始鍵 " + raw, -1, -1, targetOffset,
@@ -2488,9 +2491,14 @@ KeyResult Buffer::beginInsert(int pos, const fcitx::Key &key) {
 KeyResult Buffer::revertCellToEnglish() {
     auto [typed, tone1] =
         typedBody(cells_[selCursor_].typed, cells_[selCursor_].reading);
-    (void)tone1; // 一聲 has no key of its own; the body alone explodes
     if (typed.empty()) {
         return {true, false, {}, true};
+    }
+    // 一聲 is written with Space, and that Space is a key the user pressed.
+    // Reverting to "the raw keys" has to give it back, or the recovered text is
+    // not what was typed and the next keystroke re-merges with the syllable.
+    if (tone1) {
+        typed.push_back(' ');
     }
     cells_.erase(cells_.begin() + selCursor_);
     int at = selCursor_;

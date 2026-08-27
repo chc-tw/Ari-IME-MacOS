@@ -308,6 +308,30 @@ AriCandidateWindow *sharedCandidateWindow() {
         return NO;
     }
 
+    // Paging stops at both ends. On a list of a few dozen homophones the page
+    // you want is often the last one, so make the ends meet: pressing back from
+    // the first page lands on the last, and forward from the last returns to
+    // the first. The core has no wrap, but a page is just a repeated step.
+    if (self.buffer.isPicking()) {
+        const int pages = self.buffer.candidatePageCount();
+        const int page = self.buffer.candidatePage();
+        const fcitx::KeySym sym = translated.key.sym();
+        if (pages > 1 && sym == FcitxKey_Page_Up && page == 1) {
+            for (int i = 0; i < pages - 1; ++i) {
+                self.buffer.handleKey(fcitx::Key(FcitxKey_Page_Down));
+            }
+            [self updateUIForClient:sender];
+            return YES;
+        }
+        if (pages > 1 && sym == FcitxKey_Page_Down && page == pages) {
+            for (int i = 0; i < pages - 1; ++i) {
+                self.buffer.handleKey(fcitx::Key(FcitxKey_Page_Up));
+            }
+            [self updateUIForClient:sender];
+            return YES;
+        }
+    }
+
     // ↓ opens candidates for the character the caret points at — the one to its
     // right, or the last one when the caret is at the end. Every macOS input
     // method edits the character *before* the caret instead, which is also what
@@ -631,6 +655,14 @@ AriCandidateWindow *sharedCandidateWindow() {
         return @"";
     }
     return toNSString(graphemes[static_cast<std::size_t>(index)]);
+}
+
+- (int)ari_candidatePage {
+    return self.buffer.candidatePage();
+}
+
+- (int)ari_candidatePageCount {
+    return self.buffer.candidatePageCount();
 }
 
 - (void)commitComposition:(id)sender {
