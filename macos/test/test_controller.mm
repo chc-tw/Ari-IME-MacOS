@@ -566,11 +566,13 @@ int main() {
                     "the next fig4 needs no answer");
 
             // A longer run is a different question, and must not inherit it.
+            // A tone key ends a token, so keys typed afterwards start a new
+            // one and simply follow the remembered prefix.
             Session longer;
             longer.type(@"fig46");
             longer.send(kVK_Return, @"\r");
-            check(![longer.client.committed isEqualToString:@"fig46"],
-                  "a longer run is parsed on its own");
+            checkEq(longer.client.committed, @"fig46",
+                    "later keys append to the remembered reading");
 
             Buffer::forgetBoundary("fig4");
             Session after;
@@ -589,16 +591,13 @@ int main() {
             teach.type(@"1");
             checkEq(teach.client.markedText, @"fig4", "taught to stay English");
 
-            // While the keys are still arriving the token is not complete, so
-            // the reading stands as the rules made it; the remembered answer
-            // lands when the token closes — here, when ↑ freezes it.
+            // The answer lands as the syllable converts, so the text never
+            // changes under the user a keystroke later.
             Session again;
             again.type(@"fig4");
-            checkEq(again.client.markedText, @"fi是",
-                    "mid-token the rule still governs");
-            again.send(kVK_UpArrow, @"");
             checkEq(again.client.markedText, @"fig4",
-                    "closing the token applies the remembered answer");
+                    "the remembered answer is there as it is typed");
+            again.send(kVK_UpArrow, @"");
             again.type(@"2");
             checkEq(again.client.markedText, @"fi是", "and it can be changed back");
 

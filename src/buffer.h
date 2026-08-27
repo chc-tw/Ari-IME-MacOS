@@ -233,11 +233,13 @@ private:
     // Freeze the live run plus `prefix` into cells_, then start a fresh Chinese
     // run from `syllable` (which already carries its tone, or a trailing space
     // for 一聲). Shared by the initial-led peel passes.
-    void peelInto(const std::string &prefix, const std::string &syllable);
+    void peelInto(const std::string &prefix, const std::string &syllable,
+                  const std::string &typed);
     // Rewrite the token that was just frozen if its keys were adjudicated
     // before. Called from freezeAll(), so a remembered decision is applied when
     // the token is complete and never while it is still growing.
     void applyRememberedBoundary();
+    void applyRememberedBoundaryToRun();
     // The run of literal English cells ending at `idx`, as a cell index.
     int tokenStart(int idx) const;
     static bool isLiteralKeyCell(const Cell &cell);

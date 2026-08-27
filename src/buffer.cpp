@@ -749,11 +749,38 @@ void Buffer::freezeAll() {
     freezeEnglish();
     freezeSyllable();
     token_ = Token::Chinese;
-    // The token is complete now — another one is starting, or the line is
-    // about to be committed — so this is where a remembered adjudication is
-    // safe to apply. Doing it while the keys were still arriving would decide
-    // a boundary that the next keystroke could still move.
     applyRememberedBoundary();
+}
+
+// A syllable has just converted. In Ari's model the tone key that converted it
+// is itself the token boundary — measurably, nothing typed afterwards pulls the
+// character back into a longer syllable — so a remembered answer can be applied
+// right now rather than held until the token is frozen. Holding it made the
+// text change under the user a keystroke later, which is worse than useless.
+void Buffer::applyRememberedBoundaryToRun() {
+    if (runTyped_.empty() || rememberedBoundaries().empty()) {
+        return;
+    }
+    // The literal cells before the run belong to this token only when the run
+    // holds nothing else; a second syllable separates them from this one.
+    std::string keys;
+    if (runTyped_.size() == 1) {
+        std::size_t start = cells_.size();
+        while (start > 0 && isLiteralKeyCell(cells_[start - 1])) {
+            --start;
+        }
+        for (std::size_t i = start; i < cells_.size(); ++i) {
+            keys += cells_[i].text;
+        }
+    }
+    keys += runTyped_.back().empty() ? runReadings_.back() : runTyped_.back();
+
+    for (const auto &entry : rememberedBoundaries()) {
+        if (entry.keys == keys) {
+            freezeAll(); // applyRememberedBoundary() runs from there
+            return;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -995,7 +1022,9 @@ KeyResult Buffer::handleKey(const fcitx::Key &key) {
         return {true, false, {}, true, /*notifyMode=*/true};
     }
 
-    return handleAuto(key);
+    KeyResult result = handleAuto(key);
+    applyRememberedBoundaryToRun();
+    return result;
 }
 
 KeyResult Buffer::handleAuto(const fcitx::Key &key) {
@@ -1466,7 +1495,8 @@ bool Buffer::bodyIsPeelable(const std::string &body) const {
     return true;
 }
 
-void Buffer::peelInto(const std::string &prefix, const std::string &syllable) {
+void Buffer::peelInto(const std::string &prefix, const std::string &syllable,
+                      const std::string &typed) {
     freezeRun();
     for (char c : prefix) {
         cells_.push_back({false, std::string(1, c), {}});
@@ -1479,6 +1509,9 @@ void Buffer::peelInto(const std::string &prefix, const std::string &syllable) {
         zhuyin_.handleSpace();
     }
     runReadings_ = {syllable};
+    // Keep the keys in the order they were typed: the boundary memory is keyed
+    // on what the user pressed, not on the canonical form.
+    runTyped_ = {typed};
     zhuyin_.promoteUserPhrases();
     moveAutoCommit();
     token_ = Token::Chinese;
@@ -1550,7 +1583,7 @@ bool Buffer::tryPeelEnglish(char tone, KeyResult &out) {
         if (!syllableConverts(syllable)) {
             continue;
         }
-        peelInto(prefix, syllable);
+        peelInto(prefix, syllable, body + std::string(1, tone));
         out = {true, false, {}, true};
         return true;
     }
@@ -1645,7 +1678,7 @@ bool Buffer::tryPeelEnglishTone1(KeyResult &out) {
         if (!syllableConvertsTone1(syllable)) {
             continue;
         }
-        peelInto(prefix, syllable + " ");
+        peelInto(prefix, syllable + " ", body + " ");
         out = {true, false, {}, true};
         return true;
     }
@@ -3123,7 +3156,17 @@ bool validBoundaryField(std::string_view field) {
 
 } // namespace
 
+namespace {
+// Reloaded only after a write. The memory is consulted as each syllable
+// converts, which is far too often to re-read a file for.
+bool boundaryCacheLoaded = false;
+std::vector<Buffer::RememberedBoundary> boundaryCache;
+} // namespace
+
 std::vector<Buffer::RememberedBoundary> Buffer::rememberedBoundaries() {
+    if (boundaryCacheLoaded) {
+        return boundaryCache;
+    }
     std::vector<RememberedBoundary> entries;
     const auto path = boundaryPath();
     if (path.empty()) {
@@ -3150,12 +3193,15 @@ std::vector<Buffer::RememberedBoundary> Buffer::rememberedBoundaries() {
                            line.substr(first + 1, second - first - 1),
                            line.substr(second + 1)});
     }
+    boundaryCache = entries;
+    boundaryCacheLoaded = true;
     return entries;
 }
 
 namespace {
 
 bool writeBoundaries(const std::vector<Buffer::RememberedBoundary> &entries) {
+    boundaryCacheLoaded = false; // the file is about to change
     const auto path = boundaryPath();
     const auto dir = ari_ime::userDataDir();
     if (path.empty() || dir.empty()) {
