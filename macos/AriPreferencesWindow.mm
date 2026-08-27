@@ -3,7 +3,9 @@
 #import "AriPreferencesWindow.h"
 
 #include "AriPreferences.h"
+#include "buffer.h"
 #include "layout.h"
+#include "zhuyin.h"
 
 namespace {
 
@@ -40,6 +42,17 @@ NSTextField *hint(NSString *text) {
 
 } // namespace
 
+// One row of a memory list. The two kinds answer different questions — which
+// homophone, and English or Chinese — so they are listed separately rather
+// than merged into one table the user would have to disentangle.
+@interface AriMemoryRow : NSObject
+@property(nonatomic, copy) NSString *subject;  // the keys or the phrase
+@property(nonatomic, copy) NSString *outcome;  // what they resolve to
+@end
+
+@implementation AriMemoryRow
+@end
+
 @implementation AriPreferencesWindow {
     NSWindow *_window;
     NSPopUpButton *_layout;
@@ -52,6 +65,10 @@ NSTextField *hint(NSString *text) {
     NSButton *_showStatusLine;
     NSButton *_spaceCandidateMode;
     NSPopUpButton *_punctuationShortcut;
+    NSTableView *_boundaries;
+    NSTableView *_phrases;
+    NSMutableArray<AriMemoryRow *> *_boundaryRows;
+    NSMutableArray<AriMemoryRow *> *_phraseRows;
 }
 
 + (instancetype)shared {
@@ -68,6 +85,7 @@ NSTextField *hint(NSString *text) {
         [self build];
     }
     [self load];
+    [self loadMemory];
     // An input method is an agent with no Dock tile, so it has to ask for the
     // foreground explicitly or the window opens behind whatever the user is
     // typing into.
@@ -152,19 +170,144 @@ NSTextField *hint(NSString *text) {
     return grid;
 }
 
+// --- Memory pane ----------------------------------------------------------
+
+- (NSTableView *)tableWithFirstColumn:(NSString *)first
+                        secondColumn:(NSString *)second {
+    NSTableView *table = [[NSTableView alloc] initWithFrame:NSZeroRect];
+    NSTableColumn *subject = [[NSTableColumn alloc] initWithIdentifier:@"subject"];
+    subject.title = first;
+    subject.width = 150;
+    NSTableColumn *outcome = [[NSTableColumn alloc] initWithIdentifier:@"outcome"];
+    outcome.title = second;
+    outcome.width = 220;
+    [table addTableColumn:subject];
+    [table addTableColumn:outcome];
+    table.dataSource = self;
+    table.allowsMultipleSelection = YES;
+    table.rowSizeStyle = NSTableViewRowSizeStyleDefault;
+    return table;
+}
+
+- (NSView *)memoryPane {
+    _boundaryRows = [NSMutableArray array];
+    _phraseRows = [NSMutableArray array];
+    _boundaries = [self tableWithFirstColumn:@"按鍵" secondColumn:@"選擇"];
+    _phrases = [self tableWithFirstColumn:@"詞彙" secondColumn:@"讀音"];
+
+    NSStackView *stack = [NSStackView stackViewWithViews:@[
+        hint(@"中英裁決 — ↑ 選過的組合，下次自動套用"),
+        [self scrolling:_boundaries],
+        [NSButton buttonWithTitle:@"刪除選取的裁決"
+                           target:self
+                           action:@selector(forgetBoundaries:)],
+        hint(@"中文選字 — 學過的詞彙與讀音"),
+        [self scrolling:_phrases],
+        [NSButton buttonWithTitle:@"刪除選取的詞彙"
+                           target:self
+                           action:@selector(forgetPhrases:)],
+    ]];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 6;
+    stack.edgeInsets = NSEdgeInsetsMake(16, 20, 16, 20);
+    return stack;
+}
+
+- (NSScrollView *)scrolling:(NSTableView *)table {
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    scroll.documentView = table;
+    scroll.hasVerticalScroller = YES;
+    scroll.borderType = NSBezelBorder;
+    [scroll.heightAnchor constraintEqualToConstant:110].active = YES;
+    [scroll.widthAnchor constraintEqualToConstant:400].active = YES;
+    return scroll;
+}
+
+- (void)loadMemory {
+    [_boundaryRows removeAllObjects];
+    for (const auto &entry : Buffer::rememberedBoundaries()) {
+        AriMemoryRow *row = [[AriMemoryRow alloc] init];
+        row.subject = @(entry.keys.c_str());
+        row.outcome = @((entry.english + entry.chinese).c_str());
+        [_boundaryRows addObject:row];
+    }
+    [_phraseRows removeAllObjects];
+    {
+        Zhuyin dictionary;
+        for (const auto &phrase : dictionary.userPhrases()) {
+            AriMemoryRow *row = [[AriMemoryRow alloc] init];
+            row.subject = @(phrase.phrase.c_str());
+            row.outcome = @(phrase.reading.c_str());
+            [_phraseRows addObject:row];
+        }
+    }
+    [_boundaries reloadData];
+    [_phrases reloadData];
+}
+
+- (void)forgetBoundaries:(id)sender {
+    (void)sender;
+    [_boundaries.selectedRowIndexes enumerateIndexesUsingBlock:^(NSUInteger i, BOOL *stop) {
+      (void)stop;
+      if (i < self->_boundaryRows.count) {
+          Buffer::forgetBoundary(self->_boundaryRows[i].subject.UTF8String ?: "");
+      }
+    }];
+    [self loadMemory];
+}
+
+- (void)forgetPhrases:(id)sender {
+    (void)sender;
+    // One context for the whole removal: opening a chewing context is not
+    // cheap, and it writes the dictionary out when it goes away.
+    Zhuyin dictionary;
+    NSMutableArray<NSString *> *doomed = [NSMutableArray array];
+    [_phrases.selectedRowIndexes enumerateIndexesUsingBlock:^(NSUInteger i, BOOL *stop) {
+      (void)stop;
+      if (i < self->_phraseRows.count) {
+          [doomed addObject:self->_phraseRows[i].subject];
+      }
+    }];
+    for (NSString *phrase in doomed) {
+        dictionary.forgetUserPhrase(phrase.UTF8String ?: "");
+    }
+    [self loadMemory];
+}
+
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)table {
+    return table == _boundaries ? (NSInteger)_boundaryRows.count
+                                : (NSInteger)_phraseRows.count;
+}
+
+- (id)tableView:(NSTableView *)table
+    objectValueForTableColumn:(NSTableColumn *)column
+                          row:(NSInteger)row {
+    NSArray<AriMemoryRow *> *rows = table == _boundaries ? _boundaryRows : _phraseRows;
+    if (row < 0 || row >= (NSInteger)rows.count) {
+        return @"";
+    }
+    return [column.identifier isEqualToString:@"subject"] ? rows[row].subject
+                                                          : rows[row].outcome;
+}
+
 - (void)build {
-    NSTabView *tabs = [[NSTabView alloc] initWithFrame:NSMakeRect(0, 0, 460, 300)];
+    NSTabView *tabs = [[NSTabView alloc] initWithFrame:NSMakeRect(0, 0, 460, 390)];
     NSTabViewItem *general = [[NSTabViewItem alloc] initWithIdentifier:@"general"];
     general.label = @"一般";
     general.view = [self paneContaining:[self generalPane]];
     NSTabViewItem *advanced = [[NSTabViewItem alloc] initWithIdentifier:@"advanced"];
     advanced.label = @"進階";
     advanced.view = [self paneContaining:[self advancedPane]];
+    NSTabViewItem *memory = [[NSTabViewItem alloc] initWithIdentifier:@"memory"];
+    memory.label = @"記憶";
+    memory.view = [self memoryPane];
     [tabs addTabViewItem:general];
     [tabs addTabViewItem:advanced];
+    [tabs addTabViewItem:memory];
 
     _window = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, 480, 340)
+        initWithContentRect:NSMakeRect(0, 0, 480, 430)
                   styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
                     backing:NSBackingStoreBuffered
                       defer:NO];

@@ -12,6 +12,8 @@
 #import <Cocoa/Cocoa.h>
 
 #import "AriInputController.h"
+
+#include "buffer.h"
 #import "KeyMap.h"
 
 #include <map>
@@ -107,6 +109,14 @@ static void check(BOOL condition, const char *label) {
 @end
 
 namespace {
+
+// A remembered adjudication changes what later blocks see, so each one that
+// depends on the default reading starts from a clean slate.
+void forgetEverything() {
+    for (const auto &entry : Buffer::rememberedBoundaries()) {
+        Buffer::forgetBoundary(entry.keys);
+    }
+}
 
 // Map each ASCII character back to the (virtual key code, shift) pair that
 // produces it on the machine's keyboard layout. Synthetic events must carry a
@@ -484,7 +494,9 @@ int main() {
                     "← then ↓ moves to the character before it");
         }
 
-        { // ↑ asks which reading of an ambiguous run was meant, and picking the
+        {
+            forgetEverything();
+          // ↑ asks which reading of an ambiguous run was meant, and picking the
           // all-English one gives the keys back exactly as typed.
             Session s;
             s.type(@"fig4");
@@ -498,7 +510,9 @@ int main() {
             checkEq(s.client.committed, @"fig4", "and it commits as English");
         }
 
-        { // The Chinese reading is still reachable from the same list.
+        {
+            forgetEverything();
+          // The Chinese reading is still reachable from the same list.
             Session s;
             s.type(@"fig4");
             s.send(kVK_UpArrow, @"");
@@ -506,7 +520,9 @@ int main() {
             checkEq(s.client.markedText, @"fi是", "the second entry keeps 是");
         }
 
-        { // Esc leaves the line exactly as it was.
+        {
+            forgetEverything();
+          // Esc leaves the line exactly as it was.
             Session s;
             s.type(@"fig4");
             s.send(kVK_UpArrow, @"");
@@ -514,7 +530,9 @@ int main() {
             checkEq(s.client.markedText, @"fi是", "Esc changes nothing");
         }
 
-        { // A clean syllable is ambiguous too — it could have been meant as the
+        {
+            forgetEverything();
+          // A clean syllable is ambiguous too — it could have been meant as the
           // keys themselves — so ↑ offers those, replacing the raw-key entry
           // that used to be buried at the end of the候選 list.
             Session s;
@@ -530,6 +548,34 @@ int main() {
             s.type(@"README");
             s.send(kVK_UpArrow, @"");
             checkEq(s.client.markedText, @"README", "↑ leaves English alone");
+        }
+
+        {
+            forgetEverything();
+          // The choice is remembered: the point of asking is not to ask again.
+            Session first;
+            first.type(@"fig4");
+            first.send(kVK_UpArrow, @"");
+            first.type(@"1");                    // keep it English
+            checkEq(first.client.markedText, @"fig4", "taught once");
+
+            Session second;
+            second.type(@"fig4");
+            second.send(kVK_Return, @"\r");
+            checkEq(second.client.committed, @"fig4",
+                    "the next fig4 needs no answer");
+
+            // A longer run is a different question, and must not inherit it.
+            Session longer;
+            longer.type(@"fig46");
+            longer.send(kVK_Return, @"\r");
+            check(![longer.client.committed isEqualToString:@"fig46"],
+                  "a longer run is parsed on its own");
+
+            Buffer::forgetBoundary("fig4");
+            Session after;
+            after.type(@"fig4");
+            checkEq(after.client.markedText, @"fi是", "forgetting restores the rule");
         }
 
         { // Command shortcuts are never swallowed.

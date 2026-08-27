@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Kaiyasi
 #include "buffer.h"
 
+#include <fstream>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -747,6 +749,11 @@ void Buffer::freezeAll() {
     freezeEnglish();
     freezeSyllable();
     token_ = Token::Chinese;
+    // The token is complete now — another one is starting, or the line is
+    // about to be committed — so this is where a remembered adjudication is
+    // safe to apply. Doing it while the keys were still arriving would decide
+    // a boundary that the next keystroke could still move.
+    applyRememberedBoundary();
 }
 
 // ---------------------------------------------------------------------------
@@ -1701,11 +1708,13 @@ KeyResult Buffer::handleSpace() {
 
 KeyResult Buffer::handleEnter() {
     // The one and only commit point: flush the whole pre-edit to the client.
-    std::string out = preeditText();
-    if (out.empty()) {
+    if (preeditText().empty()) {
         return {false, false, {}, false}; // nothing pending: let Enter through
     }
     mergeTail();      // gather the live tail + parked tail into cells_ for learning
+    // Read the text after merging, not before: freezing the tail is what
+    // completes the last token, and a remembered adjudication is applied there.
+    std::string out = preeditText();
     if (learningAllowed_) {
         learnFromCells(); // teach chewing the chosen readings -> characters
     }
@@ -3095,4 +3104,168 @@ KeyResult Buffer::chooseBoundaryAlternative(int idx, int choice) {
     caretPos_ = start + static_cast<int>(replacement.size());
     selCursor_ = caretPos_ - 1;
     return {true, false, {}, true};
+}
+
+// ---------------------------------------------------------------------------
+// Remembered boundary adjudications (M6)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr std::string_view kBoundaryHeader = "# Ari IME boundary choices v1";
+
+std::filesystem::path boundaryPath() {
+    const auto dir = ari_ime::userDataDir();
+    return dir.empty() ? std::filesystem::path{} : dir / "boundaries.tsv";
+}
+
+bool validBoundaryField(std::string_view field) {
+    return field.find('\t') == std::string_view::npos &&
+           field.find('\n') == std::string_view::npos &&
+           field.find('\r') == std::string_view::npos;
+}
+
+} // namespace
+
+std::vector<Buffer::RememberedBoundary> Buffer::rememberedBoundaries() {
+    std::vector<RememberedBoundary> entries;
+    const auto path = boundaryPath();
+    if (path.empty()) {
+        return entries;
+    }
+    std::ifstream in(path, std::ios::binary);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        const auto first = line.find('\t');
+        if (first == std::string::npos) {
+            continue;
+        }
+        const auto second = line.find('\t', first + 1);
+        if (second == std::string::npos) {
+            continue;
+        }
+        entries.push_back({line.substr(0, first),
+                           line.substr(first + 1, second - first - 1),
+                           line.substr(second + 1)});
+    }
+    return entries;
+}
+
+namespace {
+
+bool writeBoundaries(const std::vector<Buffer::RememberedBoundary> &entries) {
+    const auto path = boundaryPath();
+    const auto dir = ari_ime::userDataDir();
+    if (path.empty() || dir.empty()) {
+        return false;
+    }
+    std::error_code ec;
+    if (entries.empty()) {
+        std::filesystem::remove(path, ec);
+        return !ec;
+    }
+    std::filesystem::create_directories(dir, ec);
+    if (ec) {
+        return false;
+    }
+    std::filesystem::path temporary = path;
+    temporary += ".tmp";
+    {
+        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            return false;
+        }
+        out << kBoundaryHeader << '\n';
+        for (const auto &entry : entries) {
+            out << entry.keys << '\t' << entry.english << '\t' << entry.chinese
+                << '\n';
+        }
+        if (!out) {
+            std::error_code cleanup;
+            std::filesystem::remove(temporary, cleanup);
+            return false;
+        }
+    }
+    std::filesystem::rename(temporary, path, ec);
+    if (ec) {
+        std::error_code cleanup;
+        std::filesystem::remove(temporary, cleanup);
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool Buffer::forgetBoundary(const std::string &keys) {
+    auto entries = rememberedBoundaries();
+    const auto before = entries.size();
+    entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                 [&](const RememberedBoundary &entry) {
+                                     return entry.keys == keys;
+                                 }),
+                  entries.end());
+    return entries.size() != before && writeBoundaries(entries);
+}
+
+KeyResult Buffer::chooseAndRememberBoundaryAlternative(int idx, int choice) {
+    const auto alternatives = boundaryAlternatives(idx);
+    if (choice < 0 || choice >= static_cast<int>(alternatives.size())) {
+        return {false, false, {}, false};
+    }
+    const BoundaryAlternative &chosen = alternatives[static_cast<std::size_t>(choice)];
+    if (learningAllowed_ && validBoundaryField(chosen.keys) &&
+        validBoundaryField(chosen.english) && validBoundaryField(chosen.chinese)) {
+        auto entries = rememberedBoundaries();
+        entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                     [&](const RememberedBoundary &entry) {
+                                         return entry.keys == chosen.keys;
+                                     }),
+                      entries.end());
+        entries.push_back({chosen.keys, chosen.english, chosen.chinese});
+        writeBoundaries(entries);
+    }
+    return chooseBoundaryAlternative(idx, choice);
+}
+
+int Buffer::tokenStart(int idx) const {
+    int start = idx;
+    while (start > 0 && !cells_[start - 1].chinese &&
+           cells_[start - 1].text.size() == 1 &&
+           static_cast<unsigned char>(cells_[start - 1].text[0]) < 0x80 &&
+           std::isalnum(static_cast<unsigned char>(cells_[start - 1].text[0]))) {
+        --start;
+    }
+    return start;
+}
+
+void Buffer::applyRememberedBoundary() {
+    if (cells_.empty() || !cells_.back().chinese) {
+        return;
+    }
+    const int idx = static_cast<int>(cells_.size()) - 1;
+    const auto alternatives = boundaryAlternatives(idx);
+    if (alternatives.empty()) {
+        return;
+    }
+    const std::string &keys = alternatives.front().keys;
+    for (const auto &entry : rememberedBoundaries()) {
+        if (entry.keys != keys) {
+            continue;
+        }
+        for (std::size_t i = 0; i < alternatives.size(); ++i) {
+            if (alternatives[i].english == entry.english &&
+                alternatives[i].chinese == entry.chinese) {
+                chooseBoundaryAlternative(idx, static_cast<int>(i));
+                return;
+            }
+        }
+        return;
+    }
 }

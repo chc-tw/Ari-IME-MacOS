@@ -120,6 +120,18 @@ public:
     std::vector<BoundaryAlternative> boundaryAlternatives(int idx) const;
     // Apply one of them, replacing the token's cells.
     KeyResult chooseBoundaryAlternative(int idx, int choice);
+    // Same, and remember it: the next time this exact run of keys is typed,
+    // the same reading is chosen without asking again.
+    KeyResult chooseAndRememberBoundaryAlternative(int idx, int choice);
+
+    // One remembered adjudication, for review and removal.
+    struct RememberedBoundary {
+        std::string keys;    // the run of keys this decision is about
+        std::string english; // the prefix that stays English
+        std::string chinese; // what the rest becomes ("" = all English)
+    };
+    static std::vector<RememberedBoundary> rememberedBoundaries();
+    static bool forgetBoundary(const std::string &keys);
 
     bool isEditing() const { return selecting_; }
     bool isPicking() const { return selecting_ && candOpen_; }
@@ -222,6 +234,12 @@ private:
     // run from `syllable` (which already carries its tone, or a trailing space
     // for 一聲). Shared by the initial-led peel passes.
     void peelInto(const std::string &prefix, const std::string &syllable);
+    // Rewrite the token that was just frozen if its keys were adjudicated
+    // before. Called from freezeAll(), so a remembered decision is applied when
+    // the token is complete and never while it is still growing.
+    void applyRememberedBoundary();
+    // The run of literal English cells ending at `idx`, as a cell index.
+    int tokenStart(int idx) const;
     // Whether a trailing English body may be re-read as a syllable. With
     // uppercaseIsEnglish_ set, one that contains a capital may not: the letters
     // are English, so a tone must not claim them back.

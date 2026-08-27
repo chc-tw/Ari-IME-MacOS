@@ -296,3 +296,51 @@ catsu3  → [0] catsu3      [1] cats + 以   [2] cat + 你
 記憶範圍先做純全域，理由見 `docs/macos-port-plan.md` §12。
 
 **合併風險**：低。純新增，不修改既有函式。
+
+---
+
+## D7 — 記住邊界裁決（M6 第二部分）
+
+**檔案**：`src/buffer.h`、`src/buffer.cpp`
+**類型**：新增 API + **兩處既有函式的小改動**
+**衝擊**：`test_buffer` 19904 checks 零額外變動
+
+### 新增
+
+```cpp
+KeyResult chooseAndRememberBoundaryAlternative(int idx, int choice);
+struct RememberedBoundary { std::string keys, english, chinese; };
+static std::vector<RememberedBoundary> rememberedBoundaries();
+static bool forgetBoundary(const std::string &keys);
+```
+
+儲存於 `<資料目錄>/boundaries.tsv`，格式與既有的 `preferences.tsv` 一致
+（表頭 + TAB 分隔 + 原子 rename）。含 TAB/換行的內容一律拒絕。
+`learningAllowed_` 為假（密碼欄位、關閉學習）時不寫入。
+
+### 既有函式的兩處改動
+
+**1. `freezeAll()` 末尾呼叫 `applyRememberedBoundary()`。**
+
+這是「token 完成」的時機——另一個 token 開始，或整行即將送出。
+在按鍵還在進來時套用，等於替一個下一鍵仍可能改變的邊界做決定。
+
+**2. `handleEnter()` 改為在 `mergeTail()` 之後才讀取要送出的文字。**
+
+上游先取 `preeditText()` 再 `mergeTail()`。凍結尾端正是最後一個 token 完成的
+時刻，記憶在那裡套用，因此文字必須在合併之後才讀，否則送出的是套用前的內容。
+
+### 子集保護（使用者提出的風險）
+
+記憶只在**完整 token 的按鍵串精確相符**時套用。實測：
+
+```
+教過 fig4 → 英文
+  fig4   commits "fig4"     ← 套用
+  fig46  commits "fi是6"    ← 不套用，較長的 token 是另一個問題
+  su3    commits "你"       ← 無關
+忘記後
+  fig4   commits "fi是"     ← 回到規則判斷
+```
+
+**合併風險**：中。新增為主，但 `freezeAll()` 與 `handleEnter()` 各有一處小改動。

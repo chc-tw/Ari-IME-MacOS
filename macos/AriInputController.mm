@@ -788,8 +788,9 @@ AriCandidateWindow *sharedCandidateWindow() {
 }
 
 - (void)applyAlternative:(int)choice client:(id)sender {
+    // Remember it: the point of asking is not to ask again.
     const KeyResult result =
-        self.buffer.chooseBoundaryAlternative(_adjudicating, choice);
+        self.buffer.chooseAndRememberBoundaryAlternative(_adjudicating, choice);
     _alternatives.clear();
     _adjudicationHighlight = 0;
     [self applyResult:result client:sender];

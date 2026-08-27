@@ -8,7 +8,7 @@
 // The settings window, reached from the input menu. Everything it writes goes
 // to the same NSUserDefaults keys documented for `defaults write`, and the
 // engine re-reads them on the next keystroke, so changes apply immediately.
-@interface AriPreferencesWindow : NSObject
+@interface AriPreferencesWindow : NSObject <NSTableViewDataSource>
 
 + (instancetype)shared;
 - (void)show;
