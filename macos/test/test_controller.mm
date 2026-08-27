@@ -608,6 +608,24 @@ int main() {
             forgetEverything();
         }
 
+        { // A key Ari does not claim must not take the composition with it.
+          // ⌥, produces ≤, which no layout maps to ASCII.
+            Session s;
+            s.type(@"su3");
+            checkEq(s.client.markedText, @"你", "composing");
+            check(!s.send(kVK_ANSI_Comma, @"≤", NSEventModifierFlagOption),
+                  "the key goes to the application");
+            checkEq(s.client.committed, @"你", "the composition is committed first");
+            checkEq(s.client.markedText, @"", "and nothing is left marked");
+        }
+
+        { // Tab is the same story: unhandled while composing.
+            Session s;
+            s.type(@"su3");
+            s.send(kVK_Tab, @"\t");
+            checkEq(s.client.committed, @"你", "Tab commits rather than losing it");
+        }
+
         { // Command shortcuts are never swallowed.
             Session s;
             check(!s.send(kVK_ANSI_C, @"c", NSEventModifierFlagCommand),

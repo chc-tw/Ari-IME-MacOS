@@ -297,7 +297,9 @@ AriCandidateWindow *sharedCandidateWindow() {
     }
 
     if (!translated.valid || translated.passThrough) {
-        return NO;
+        // Anything the keyboard layout produces that is not plain ASCII — ⌥,
+        // giving ≤, ⌥; giving … — lands here, as do ⌘ shortcuts.
+        return [self yieldToApplication:sender];
     }
 
     if (!self.buffer.engineReady() && !_engineErrorNotified) {
@@ -435,7 +437,10 @@ AriCandidateWindow *sharedCandidateWindow() {
     os_log_debug(ariLog(), "char=%{public}s handled=%d preedit=%{public}s",
                  character.c_str(), result.handled,
                  self.buffer.preeditText().c_str());
-    return result.handled ? YES : NO;
+    if (result.handled) {
+        return YES;
+    }
+    return [self yieldToApplication:sender];
 }
 
 - (void)applyResult:(const KeyResult &)result client:(id)sender {
@@ -795,6 +800,18 @@ AriCandidateWindow *sharedCandidateWindow() {
     _adjudicationHighlight = 0;
     [self applyResult:result client:sender];
     [self updateUIForClient:sender];
+}
+
+// A key Ari does not claim goes to the application. If a composition is on
+// screen when that happens the client is being handed a keystroke it did not
+// expect while marked text is live, and clients respond by dropping the marked
+// text — the line vanishes and reappears at the start once typing resumes.
+// Commit first, so the text is already in the document.
+- (BOOL)yieldToApplication:(id)sender {
+    if (!self.buffer.preeditText().empty()) {
+        [self commitComposition:sender];
+    }
+    return NO;
 }
 
 - (int)ari_caretChar {
