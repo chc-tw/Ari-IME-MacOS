@@ -601,13 +601,44 @@ bool hasAsciiDigit(const std::string &s) {
 } // namespace
 
 std::string Buffer::pendingSyllableHint() const {
-    if (syl_.empty() || !zhuyin_.ok()) {
+    if (!zhuyin_.ok()) {
+        return {};
+    }
+    // While the token is English the keys pile up in englishBuf_, not syl_, so
+    // there is no pending syllable to report — which is exactly the moment the
+    // reading matters most, because the boundary is still undecided. Report
+    // what a tone key would peel right now: the same longest initial-led body
+    // the peel prefers, so the hint predicts what will actually happen rather
+    // than guessing.
+    //
+    // A lone initial is reported only when it is the whole tail — as it is
+    // after backspacing a mistyped word away, where the token stays English
+    // even though a single key is left. Taking one off the end of a word would
+    // instead flash a symbol under every English word ending in a 聲母 key,
+    // and one symbol is not yet evidence that anything is about to convert.
+    std::string pending = syl_;
+    if (pending.empty()) {
+        for (std::size_t k = 0; k < englishBuf_.size(); ++k) {
+            const std::string body = englishBuf_.substr(k);
+            if (body.size() < 2 && k != 0) {
+                continue;
+            }
+            if (ari_ime::zhuyinSlot(body[0]) != 0 ||
+                !ari_ime::isValidSyllable(body, /*allowTone=*/false) ||
+                !bodyIsPeelable(body)) {
+                continue;
+            }
+            pending = body;
+            break;
+        }
+    }
+    if (pending.empty()) {
         return {};
     }
     // Tone keys are stripped: chewing drops a lone initial + tone outright,
     // so only the body can be probed while the syllable is incomplete.
     std::string body;
-    for (char c : syl_) {
+    for (char c : pending) {
         if (!ari_ime::isToneKey(c)) {
             body.push_back(c);
         }

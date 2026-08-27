@@ -30,7 +30,7 @@ int main() {
         NSArray<NSString *> *keys = @[
             @"KeyboardLayout", @"PunctuationStyle", @"CandidateArrowKeys",
             @"ShowBopomofo", @"UppercaseIsEnglish", @"AutoLearn",
-            @"ShowStatusLine", @"SpaceCandidateMode",
+            @"ShowStatusLine", @"SpaceCandidateMode", @"CaretStaysAfterPick",
             @"ChinesePunctuationShortcut"
         ];
         for (NSString *key in keys) {

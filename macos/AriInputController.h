@@ -17,6 +17,7 @@
 - (BOOL)ari_isPicking;
 - (NSString *)ari_selectedCharacter;
 - (int)ari_candidatePage;
+- (int)ari_caretChar;
 - (int)ari_candidatePageCount;
 @end
 

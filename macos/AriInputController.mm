@@ -269,6 +269,28 @@ AriCandidateWindow *sharedCandidateWindow() {
         event.keyCode, character, modifiers,
         {.candidateWindowOpen = self.buffer.isPicking(),
          .arrowStyle = preferences.arrowStyle});
+    // Picking a candidate returns the caret to the end of the composition,
+    // which is what you want after fixing the character you just typed. When
+    // the fix was in the middle of a longer line it is not: ⌘Return picks and
+    // leaves the caret beside the character that changed, ready for the next
+    // correction. The core has no such mode, but walking the caret back is
+    // just Left repeated, and while a candidate window is open the application
+    // never sees these keys anyway.
+    if (preferences.caretStaysAfterPick && self.buffer.isPicking() &&
+        event.keyCode == kVK_Return && (modifiers & ari::ModCommand) &&
+        !(modifiers & (ari::ModControl | ari::ModOption))) {
+        const int target = self.buffer.selectionChar() + 1;
+        const KeyResult picked = self.buffer.handleKey(fcitx::Key(FcitxKey_Return));
+        const int total = static_cast<int>(
+            ari_ime::unicode::splitGraphemes(self.buffer.preeditText()).size());
+        for (int i = total; i > target; --i) {
+            self.buffer.handleKey(fcitx::Key(FcitxKey_Left));
+        }
+        [self applyResult:picked client:sender];
+        [self updateUIForClient:sender];
+        return YES;
+    }
+
     if (!translated.valid || translated.passThrough) {
         return NO;
     }
@@ -673,6 +695,10 @@ AriCandidateWindow *sharedCandidateWindow() {
 - (void)showPreferences:(id)sender {
     (void)sender;
     [[AriPreferencesWindow shared] show];
+}
+
+- (int)ari_caretChar {
+    return self.buffer.caretChar();
 }
 
 - (int)ari_candidatePage {

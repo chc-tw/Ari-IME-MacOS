@@ -167,6 +167,7 @@ struct Session {
 
     bool buffer_isPicking() { return [controller ari_isPicking]; }
     int page() { return [controller ari_candidatePage]; }
+    int caret() { return [controller ari_caretChar]; }
     int pageCount() { return [controller ari_candidatePageCount]; }
     NSString *selectedCharacter() { return [controller ari_selectedCharacter]; }
 
@@ -441,6 +442,29 @@ int main() {
             s.send(kVK_RightArrow, @"");  // → from the last wraps to the first
             checkEq([NSString stringWithFormat:@"%d", s.page()], @"1",
                     "forward from the last page returns to the first");
+        }
+
+        { // ⌘Return picks and leaves the caret beside what changed, instead of
+          // returning it to the end of the composition.
+            Session s;
+            s.type(@"su3cl3");            // 你好
+            s.send(kVK_LeftArrow, @"");   // caret between them
+            s.send(kVK_DownArrow, @"");   // candidates on 你
+            checkEq(s.selectedCharacter(), @"你", "editing the first character");
+            s.send(kVK_Return, @"\r", NSEventModifierFlagCommand);
+            check(!s.buffer_isPicking(), "the candidate is picked");
+            checkEq([NSString stringWithFormat:@"%d", s.caret()], @"1",
+                    "the caret stays beside the character that changed");
+        }
+
+        { // Plain Return picks and returns the caret to the end.
+            Session s;
+            s.type(@"su3cl3");
+            s.send(kVK_LeftArrow, @"");
+            s.send(kVK_DownArrow, @"");
+            s.send(kVK_Return, @"\r");
+            checkEq([NSString stringWithFormat:@"%d", s.caret()], @"-1",
+                    "the caret returns to the end");
         }
 
         { // Command shortcuts are never swallowed.

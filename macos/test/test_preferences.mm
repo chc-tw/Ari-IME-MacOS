@@ -41,6 +41,7 @@ int main() {
                   "arrows follow macOS convention by default");
             check(p.showBopomofo, "ShowBopomofo on by default");
             check(p.uppercaseIsEnglish, "UppercaseIsEnglish on by default");
+            check(p.caretStaysAfterPick, "CaretStaysAfterPick on by default");
         }
 
         { // Enums decode from the same strings the Fcitx5 config uses.

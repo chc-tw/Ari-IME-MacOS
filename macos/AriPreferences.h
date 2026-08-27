@@ -44,6 +44,9 @@ struct Preferences {
     // Uppercase letters are English, never 注音. On by default: a capital in
     // the middle of Chinese is nearly always an acronym or an identifier.
     bool uppercaseIsEnglish = true;
+    // ⌘Return picks a candidate and leaves the caret where it was, instead of
+    // returning it to the end of the composition. On by default.
+    bool caretStaysAfterPick = true;
     ArrowStyle arrowStyle = ArrowStyle::MacOS;
 };
 
