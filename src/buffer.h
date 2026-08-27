@@ -240,6 +240,7 @@ private:
     void applyRememberedBoundary();
     // The run of literal English cells ending at `idx`, as a cell index.
     int tokenStart(int idx) const;
+    static bool isLiteralKeyCell(const Cell &cell);
     // Whether a trailing English body may be re-read as a syllable. With
     // uppercaseIsEnglish_ set, one that contains a capital may not: the letters
     // are English, so a tone must not claim them back.

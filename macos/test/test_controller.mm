@@ -578,6 +578,37 @@ int main() {
             checkEq(after.client.markedText, @"fi是", "forgetting restores the rule");
         }
 
+        {
+            forgetEverything();
+          // A remembered answer must stay changeable. Applying it turns the
+          // token back into keys, and asking again has to still work on those
+          // keys — otherwise the first answer would be permanent.
+            Session teach;
+            teach.type(@"fig4");
+            teach.send(kVK_UpArrow, @"");
+            teach.type(@"1");
+            checkEq(teach.client.markedText, @"fig4", "taught to stay English");
+
+            // While the keys are still arriving the token is not complete, so
+            // the reading stands as the rules made it; the remembered answer
+            // lands when the token closes — here, when ↑ freezes it.
+            Session again;
+            again.type(@"fig4");
+            checkEq(again.client.markedText, @"fi是",
+                    "mid-token the rule still governs");
+            again.send(kVK_UpArrow, @"");
+            checkEq(again.client.markedText, @"fig4",
+                    "closing the token applies the remembered answer");
+            again.type(@"2");
+            checkEq(again.client.markedText, @"fi是", "and it can be changed back");
+
+            Session third;
+            third.type(@"fig4");
+            third.send(kVK_Return, @"\r");
+            checkEq(third.client.committed, @"fi是", "the new answer sticks");
+            forgetEverything();
+        }
+
         { // Command shortcuts are never swallowed.
             Session s;
             check(!s.send(kVK_ANSI_C, @"c", NSEventModifierFlagCommand),

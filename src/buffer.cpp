@@ -2989,27 +2989,29 @@ std::string syllableCharacter(const std::string &canonicalKeys) {
 std::vector<Buffer::BoundaryAlternative>
 Buffer::boundaryAlternatives(int idx) const {
     std::vector<BoundaryAlternative> alternatives;
-    if (idx < 0 || idx >= static_cast<int>(cells_.size()) ||
-        !cells_[idx].chinese) {
+    if (idx < 0 || idx >= static_cast<int>(cells_.size())) {
+        return alternatives;
+    }
+    // A token is a converted syllable with the literal keys before it, or —
+    // once a remembered decision has turned it back into keys — just those
+    // keys. Both have to be askable, or a remembered answer could never be
+    // changed: by the time the question is asked the answer is already applied.
+    const bool literalToken = !cells_[idx].chinese;
+    if (literalToken && !isLiteralKeyCell(cells_[idx])) {
         return alternatives;
     }
 
-    // The token is this character plus the literal English cells immediately
-    // before it — the run whose split is in question.
-    int start = idx;
-    while (start > 0 && !cells_[start - 1].chinese &&
-           cells_[start - 1].text.size() == 1 &&
-           static_cast<unsigned char>(cells_[start - 1].text[0]) < 0x80 &&
-           std::isalnum(static_cast<unsigned char>(cells_[start - 1].text[0]))) {
-        --start;
-    }
-
+    const int start = tokenStart(idx);
     std::string keys;
     for (int i = start; i < idx; ++i) {
         keys += cells_[i].text;
     }
-    const Cell &chinese = cells_[idx];
-    keys += chinese.typed.empty() ? chinese.reading : chinese.typed;
+    if (literalToken) {
+        keys += cells_[idx].text;
+    } else {
+        const Cell &chinese = cells_[idx];
+        keys += chinese.typed.empty() ? chinese.reading : chinese.typed;
+    }
     if (keys.empty()) {
         return alternatives;
     }
@@ -3075,13 +3077,7 @@ KeyResult Buffer::chooseBoundaryAlternative(int idx, int choice) {
     }
     const BoundaryAlternative &chosen = alternatives[static_cast<std::size_t>(choice)];
 
-    int start = idx;
-    while (start > 0 && !cells_[start - 1].chinese &&
-           cells_[start - 1].text.size() == 1 &&
-           static_cast<unsigned char>(cells_[start - 1].text[0]) < 0x80 &&
-           std::isalnum(static_cast<unsigned char>(cells_[start - 1].text[0]))) {
-        --start;
-    }
+    const int start = tokenStart(idx);
 
     std::vector<Cell> replacement;
     for (char c : chosen.english) {
@@ -3234,18 +3230,23 @@ KeyResult Buffer::chooseAndRememberBoundaryAlternative(int idx, int choice) {
     return chooseBoundaryAlternative(idx, choice);
 }
 
+bool Buffer::isLiteralKeyCell(const Cell &cell) {
+    return !cell.chinese && cell.text.size() == 1 &&
+           static_cast<unsigned char>(cell.text[0]) < 0x80 &&
+           std::isalnum(static_cast<unsigned char>(cell.text[0]));
+}
+
 int Buffer::tokenStart(int idx) const {
     int start = idx;
-    while (start > 0 && !cells_[start - 1].chinese &&
-           cells_[start - 1].text.size() == 1 &&
-           static_cast<unsigned char>(cells_[start - 1].text[0]) < 0x80 &&
-           std::isalnum(static_cast<unsigned char>(cells_[start - 1].text[0]))) {
+    while (start > 0 && isLiteralKeyCell(cells_[start - 1])) {
         --start;
     }
     return start;
 }
 
 void Buffer::applyRememberedBoundary() {
+    // Only a converted syllable can still be turned back; a token that is
+    // already literal keys has nothing left to apply.
     if (cells_.empty() || !cells_.back().chinese) {
         return;
     }
