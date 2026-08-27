@@ -28,11 +28,11 @@ int main() {
 
         { // Nothing set: the Fcitx5 defaults, plus the macOS arrow style.
             const ari::Preferences p = ari::currentPreferences((__bridge void *)defaults);
-            check(p.layout == inputer::KeyboardLayout::Default, "default layout");
+            check(p.layout == ari_ime::KeyboardLayout::Default, "default layout");
             check(p.punctuationStyle == ari::PunctuationStyle::Chinese,
                   "punctuation defaults to Chinese");
             check(p.punctuationShortcut ==
-                      inputer::ChinesePunctuationShortcut::ControlShift,
+                      ari_ime::ChinesePunctuationShortcut::ControlShift,
                   "default punctuation shortcut is Ctrl+Shift");
             check(!p.spaceCandidateMode, "SpaceCandidateMode off by default");
             check(p.autoLearn, "AutoLearn on by default");
@@ -52,9 +52,9 @@ int main() {
             [defaults setObject:@"Linux" forKey:@"CandidateArrowKeys"];
             [defaults setBool:NO forKey:@"UppercaseIsEnglish"];
             const ari::Preferences p = ari::currentPreferences((__bridge void *)defaults);
-            check(p.layout == inputer::KeyboardLayout::Eten, "layout reads Eten");
+            check(p.layout == ari_ime::KeyboardLayout::Eten, "layout reads Eten");
             check(p.punctuationShortcut ==
-                      inputer::ChinesePunctuationShortcut::AltShift,
+                      ari_ime::ChinesePunctuationShortcut::AltShift,
                   "punctuation shortcut reads AltShift");
             check(p.punctuationStyle == ari::PunctuationStyle::English,
                   "PunctuationStyle reads English");
@@ -69,7 +69,7 @@ int main() {
             [defaults setObject:@"NotALayout" forKey:@"KeyboardLayout"];
             [defaults setObject:@"Nonsense" forKey:@"CandidateArrowKeys"];
             const ari::Preferences p = ari::currentPreferences((__bridge void *)defaults);
-            check(p.layout == inputer::KeyboardLayout::Default,
+            check(p.layout == ari_ime::KeyboardLayout::Default,
                   "unknown layout falls back to Default");
             check(p.arrowStyle == ari::ArrowStyle::MacOS,
                   "unknown arrow style falls back to macOS");

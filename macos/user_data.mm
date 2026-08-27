@@ -12,7 +12,7 @@
 
 #import <Foundation/Foundation.h>
 
-namespace inputer {
+namespace ari_ime {
 
 namespace {
 
@@ -53,7 +53,7 @@ void publishChewingSystemPath() {
 std::filesystem::path configuredUserDataDir() {
     // The test harness and the packaging scripts pin the directory explicitly;
     // honour that before anything else so tests never touch real user data.
-    if (const char *overrideDir = std::getenv("INPUTER_USER_DATA_DIR");
+    if (const char *overrideDir = std::getenv("ARI_IME_USER_DATA_DIR");
         overrideDir && *overrideDir) {
         return std::filesystem::path(overrideDir);
     }
@@ -94,7 +94,7 @@ std::filesystem::path userPreferencePath() {
 }
 
 bool autoLearnEnabled() {
-    return std::getenv("INPUTER_DISABLE_AUTOLEARN") == nullptr;
+    return std::getenv("ARI_IME_DISABLE_AUTOLEARN") == nullptr;
 }
 
 bool ensureUserDataDir(std::error_code &ec) {
@@ -150,4 +150,4 @@ bool resetUserDictionary(std::error_code &ec) {
     return !ec;
 }
 
-} // namespace inputer
+} // namespace ari_ime

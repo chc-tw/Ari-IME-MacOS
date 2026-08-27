@@ -194,9 +194,9 @@ int main() {
         NSString *sandbox = [NSTemporaryDirectory()
             stringByAppendingPathComponent:
                 [NSString stringWithFormat:@"ari-controller-test-%d", getpid()]];
-        setenv("INPUTER_USER_DATA_DIR", sandbox.UTF8String, 1);
+        setenv("ARI_IME_USER_DATA_DIR", sandbox.UTF8String, 1);
         setenv("CHEWING_USER_PATH", sandbox.UTF8String, 1);
-        setenv("INPUTER_DISABLE_AUTOLEARN", "1", 1);
+        setenv("ARI_IME_DISABLE_AUTOLEARN", "1", 1);
 
         [NSApplication sharedApplication];
 

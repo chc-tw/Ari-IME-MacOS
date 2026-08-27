@@ -20,7 +20,6 @@
 
 #import "AriCandidateWindow.h"
 #import "AriHUD.h"
-#import "AriBopomofo.h"
 #import "AriPreferences.h"
 #import "KeyMap.h"
 
@@ -67,7 +66,7 @@ NSUInteger utf16OffsetForGrapheme(const std::string &text, int grapheme) {
     if (grapheme < 0) {
         return toNSString(text).length;
     }
-    const std::size_t bytes = inputer::unicode::graphemeOffset(text, grapheme);
+    const std::size_t bytes = ari_ime::unicode::graphemeOffset(text, grapheme);
     return toNSString(text.substr(0, bytes)).length;
 }
 
@@ -77,7 +76,7 @@ NSUInteger utf16OffsetForGrapheme(const std::string &text, int grapheme) {
 // place the user can reliably see WHICH character is being edited.
 NSString *editingPreview(const std::string &text, int position, bool picking) {
     constexpr int kContextChars = 10;
-    const std::vector<std::string> chars = inputer::unicode::splitGraphemes(text);
+    const std::vector<std::string> chars = ari_ime::unicode::splitGraphemes(text);
     const int total = static_cast<int>(chars.size());
     position = std::clamp(position, 0, total);
     const int start = std::max(0, position - kContextChars);
@@ -109,7 +108,7 @@ NSString *editingPreview(const std::string &text, int position, bool picking) {
 std::string statusText(const Buffer &buffer) {
     std::string out = buffer.isForcedEnglish() ? "英" : "中";
     out += " · ";
-    out += inputer::keyboardLayoutName(buffer.keyboardLayout());
+    out += ari_ime::keyboardLayoutName(buffer.keyboardLayout());
     out += " · ";
     out += buffer.isFullWidthPunct() ? "全形標點" : "半形標點";
     return out;
@@ -213,7 +212,7 @@ AriCandidateWindow *sharedCandidateWindow() {
     _showBopomofo = preferences.showBopomofo;
     if (self.buffer.setKeyboardLayout(preferences.layout)) {
         [self showTransient:toNSString(std::string("鍵盤 ") +
-                                       inputer::keyboardLayoutName(preferences.layout))
+                                       ari_ime::keyboardLayoutName(preferences.layout))
                      client:sender];
     }
     self.buffer.setChinesePunctuationShortcut(preferences.punctuationShortcut);
@@ -387,7 +386,7 @@ AriCandidateWindow *sharedCandidateWindow() {
     // currently making of them.
     NSString *reading = @"";
     if (_showBopomofo && !editing) {
-        reading = toNSString(ari::readingForKeys(self.buffer.pendingSyllable()));
+        reading = toNSString(self.buffer.pendingSyllableHint());
     }
     if (candidates.empty() && !editing) {
         if (reading.length == 0) {
@@ -427,7 +426,7 @@ AriCandidateWindow *sharedCandidateWindow() {
     }
     if (editing) {
         const int total = static_cast<int>(
-            inputer::unicode::splitGraphemes(preedit).size());
+            ari_ime::unicode::splitGraphemes(preedit).size());
         if (self.buffer.isPicking()) {
             [auxParts addObject:[NSString stringWithFormat:@"選字 %d/%d",
                                                            self.buffer.selectionChar() + 1,

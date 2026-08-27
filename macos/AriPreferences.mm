@@ -53,8 +53,8 @@ Preferences currentPreferences(void *defaultsOrNil) {
 
     preferences.layout =
         enumOr(defaults, kKeyboardLayout, preferences.layout);
-    if (!inputer::keyboardLayoutAvailable(preferences.layout)) {
-        preferences.layout = inputer::KeyboardLayout::Default;
+    if (!ari_ime::keyboardLayoutAvailable(preferences.layout)) {
+        preferences.layout = ari_ime::KeyboardLayout::Default;
     }
     NSString *punctuation = [defaults stringForKey:kPunctuationStyle];
     if ([punctuation isEqualToString:@"English"]) {

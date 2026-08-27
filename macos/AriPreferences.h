@@ -30,10 +30,10 @@ enum class ArrowStyle {
 };
 
 struct Preferences {
-    inputer::KeyboardLayout layout = inputer::KeyboardLayout::Default;
+    ari_ime::KeyboardLayout layout = ari_ime::KeyboardLayout::Default;
     PunctuationStyle punctuationStyle = PunctuationStyle::Chinese;
-    inputer::ChinesePunctuationShortcut punctuationShortcut =
-        inputer::ChinesePunctuationShortcut::ControlShift;
+    ari_ime::ChinesePunctuationShortcut punctuationShortcut =
+        ari_ime::ChinesePunctuationShortcut::ControlShift;
     bool spaceCandidateMode = false;
     bool autoLearn = true;
     bool showStatusLine = false;

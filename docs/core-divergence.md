@@ -10,7 +10,15 @@ macOS 移植的原則是**核心零修改**——`src/` 與上游相同，是「
 
 ---
 
-## D1 — `Buffer::pendingSyllable()`（唯讀存取器）
+## D1 — ~~`Buffer::pendingSyllable()`~~ **已撤銷（2026-08-26）**
+
+合併上游 2.6.1 後撤銷。上游 `f061818` 已提供官方版本
+`Buffer::pendingSyllableHint()`，且 API 更好——直接回傳注音符號、剝除聲調、
+處理引擎失效。macOS 前端改用官方 API，本項分歧消失。
+
+`scripts/check-upstream.sh` 第一次執行就抓到這件事。以下保留原始記錄。
+
+### （原始記錄）`Buffer::pendingSyllable()`（唯讀存取器）
 
 **檔案**：`src/buffer.h`
 **類型**：新增唯讀存取器，**不改變任何行為**

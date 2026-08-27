@@ -54,7 +54,7 @@ target_link_libraries(ari-core
 add_executable(ari-ime-dict "${ARI_SOURCE_ROOT}/src/dict_tool.cpp")
 target_link_libraries(ari-ime-dict PRIVATE ari-core)
 target_compile_definitions(ari-ime-dict
-    PRIVATE INPUTER_CHEWING_VERSION="${CHEWING_VERSION}")
+    PRIVATE ARI_IME_CHEWING_VERSION="${CHEWING_VERSION}")
 target_compile_options(ari-ime-dict PRIVATE -Wall -Wextra -Wpedantic)
 
 # --- The input method bundle -------------------------------------------------
@@ -69,7 +69,6 @@ add_executable(AriIME MACOSX_BUNDLE
     "${CMAKE_CURRENT_LIST_DIR}/AriCandidateWindow.mm"
     "${CMAKE_CURRENT_LIST_DIR}/AriHUD.mm"
     "${CMAKE_CURRENT_LIST_DIR}/AriPreferences.mm"
-    "${CMAKE_CURRENT_LIST_DIR}/AriBopomofo.mm"
     "${CMAKE_CURRENT_LIST_DIR}/KeyMap.mm"
 )
 target_link_libraries(AriIME PRIVATE ari-core
@@ -157,8 +156,8 @@ elseif(BUILD_TESTING)
         "${CMAKE_CURRENT_LIST_DIR}/AriInputController.mm"
         "${CMAKE_CURRENT_LIST_DIR}/AriCandidateWindow.mm"
         "${CMAKE_CURRENT_LIST_DIR}/AriHUD.mm"
-        "${CMAKE_CURRENT_LIST_DIR}/AriPreferences.mm"
-        "${CMAKE_CURRENT_LIST_DIR}/AriBopomofo.mm")
+        "${CMAKE_CURRENT_LIST_DIR}/AriPreferences.mm")
+
     target_include_directories(ari-frontend PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
     target_link_libraries(ari-frontend PUBLIC ari-core
         "-framework Cocoa" "-framework Carbon" "-framework InputMethodKit")
@@ -177,7 +176,6 @@ elseif(BUILD_TESTING)
 
     ari_add_frontend_test(test_keymap test_keymap.mm)
     ari_add_frontend_test(test_preferences test_preferences.mm)
-    ari_add_frontend_test(test_bopomofo test_bopomofo.mm)
     ari_add_frontend_test(test_mixed_input test_mixed_input.mm)
     ari_add_frontend_test(test_controller test_controller.mm)
 

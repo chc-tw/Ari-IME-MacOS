@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Kaiyasi
-#ifndef INPUTER_BUFFER_H
-#define INPUTER_BUFFER_H
+#ifndef ARI_IME_BUFFER_H
+#define ARI_IME_BUFFER_H
 
 #include <string>
+#include <deque>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -15,12 +16,14 @@
 
 // Result of feeding one key into the state machine, applied by the engine.
 struct KeyResult {
-    KeyResult(bool handled = false, bool hasCommit = false,
-              std::string commitText = {}, bool updateUI = false,
-              bool notifyMode = false, std::string notification = {})
-        : handled(handled), hasCommit(hasCommit),
-          commitText(std::move(commitText)), updateUI(updateUI),
-          notifyMode(notifyMode), notification(std::move(notification)) {}
+    // Parameters carry an Arg suffix so they do not shadow the members
+    // (-Wshadow); brace-initialization at every return site keeps working.
+    KeyResult(bool handledArg = false, bool hasCommitArg = false,
+              std::string commitTextArg = {}, bool updateUIArg = false,
+              bool notifyModeArg = false, std::string notificationArg = {})
+        : handled(handledArg), hasCommit(hasCommitArg),
+          commitText(std::move(commitTextArg)), updateUI(updateUIArg),
+          notifyMode(notifyModeArg), notification(std::move(notificationArg)) {}
 
     bool handled = false;      // If false, let the application handle the key.
     bool hasCommit = false;    // commitText should be committed to the client.
@@ -77,6 +80,10 @@ public:
 
     std::string preeditText() const;
     std::vector<std::string> candidates() const;
+    // Bopomofo symbols of the live pending (incomplete) syllable; empty when
+    // nothing is pending or the engine is down. Tone keys are stripped, so
+    // the hint shows the untoned body only.
+    std::string pendingSyllableHint() const;
     // Read-only recommendation data for diagnostics and tests. The frontend
     // does not display it automatically; Down opens the real picker explicitly.
     std::vector<std::string> previewCandidates();
@@ -99,14 +106,6 @@ public:
     // Tracks the selected cell while selecting and the insertion point while
     // typing mid-string, so the caret never jumps to the end during insertion.
     int caretChar() const;
-    // Raw keys of the 注音 syllable currently being composed, or empty when the
-    // live tail is English or nothing is pending. Read-only: a frontend can
-    // render the reading (ㄏㄨㄢ) alongside the raw keys the pre-edit shows, so
-    // a mis-parsed English/Chinese boundary is visible while it is still cheap
-    // to correct. This is derived state; it changes nothing.
-    std::string pendingSyllable() const {
-        return token_ == Token::Chinese ? syl_ : std::string{};
-    }
     bool isEditing() const { return selecting_; }
     bool isPicking() const { return selecting_ && candOpen_; }
 
@@ -121,7 +120,7 @@ public:
         return true;
     }
     bool setChinesePunctuationShortcut(
-        inputer::ChinesePunctuationShortcut shortcut) {
+        ari_ime::ChinesePunctuationShortcut shortcut) {
         if (punctuationShortcut_ == shortcut) {
             return false;
         }
@@ -147,7 +146,7 @@ public:
         spaceCandidateMode_ = on;
         return true;
     }
-    bool setKeyboardLayout(inputer::KeyboardLayout layout);
+    bool setKeyboardLayout(ari_ime::KeyboardLayout layout);
     // The frontend disables learning for password and other sensitive fields.
     void setLearningAllowed(bool allowed) { learningAllowed_ = allowed; }
 
@@ -158,7 +157,7 @@ public:
     // False when the 注音 engine failed to load; the engine degrades to
     // plain-English passthrough and the frontend can warn the user once.
     bool engineReady() const { return zhuyin_.ok(); }
-    inputer::KeyboardLayout keyboardLayout() const { return layout_; }
+    ari_ime::KeyboardLayout keyboardLayout() const { return layout_; }
 
 private:
     enum class Token { Chinese, English };
@@ -172,6 +171,8 @@ private:
         bool chinese = false;
         std::string text;    // the displayed character (one codepoint)
         std::string reading; // canonical 注音 keys; trailing ' ' marks 一聲
+        std::string typed{}; // keys as actually typed, in input order (may be
+                             // out of canonical order); empty = use reading
         bool locked = false; // the user explicitly picked this character; pin it
                              // (as a single) whenever the run is re-fed, so it
                              // survives later picks elsewhere in the run.
@@ -192,8 +193,9 @@ private:
     KeyResult handleLiteralChar(char c);
     // Feed a complete, canonicalised syllable body into the live chewing run,
     // extending it so chewing's phrasing spans contiguous Chinese. English in
-    // front of it freezes the old run first, preserving order.
-    void integrateSyllable(const std::string &body);
+    // front of it freezes the old run first, preserving order. `typed` carries
+    // the keys as actually typed (may differ in order from `body`).
+    void integrateSyllable(const std::string &body, const std::string &typed);
     // Abandon the current 注音 hypothesis WITHOUT committing: the in-progress
     // syllable plus `trailing` become the live English tail after the run.
     KeyResult flipToEnglish(char trailing);
@@ -317,17 +319,19 @@ private:
 
     bool forcedEnglish_ = false;
     bool fullWidthPunct_ = false;
-    inputer::ChinesePunctuationShortcut punctuationShortcut_ =
-        inputer::ChinesePunctuationShortcut::ControlShift;
+    ari_ime::ChinesePunctuationShortcut punctuationShortcut_ =
+        ari_ime::ChinesePunctuationShortcut::ControlShift;
     bool spaceCandidateMode_ = false;
     bool uppercaseIsEnglish_ = false;
     bool learningAllowed_ = true;
-    inputer::KeyboardLayout layout_ = inputer::KeyboardLayout::Default;
+    ari_ime::KeyboardLayout layout_ = ari_ime::KeyboardLayout::Default;
     Token token_ = Token::Chinese;
     std::vector<Cell> cells_;             // finalized pre-edit, before the live tail
     std::vector<Cell> tail_;              // cells parked AFTER the live tail while
                                           // inserting mid-string; empty otherwise
     std::vector<std::string> runReadings_; // readings parallel to the live run chars
+    std::vector<std::string> runTyped_;    // keys as typed, parallel to runReadings_;
+                                           // empty entries fall back to readings
     std::string englishBuf_;             // live English tail, after the chewing run
     std::string syl_;                    // raw keys of the in-progress 注音 syllable
     bool selecting_ = false;             // editing mode active (caret or picking)
@@ -344,9 +348,11 @@ private:
     int highlight_ = 0;                  // highlighted candidate within the page
     // Readings from text Ari has already composed in this input context. They
     // make the common reconversion path immediate; unknown external text falls
-    // back to the bounded libchewing reverse lookup.
+    // back to the bounded libchewing reverse lookup. Insertion order is kept
+    // so eviction is FIFO rather than an arbitrary unordered_map element.
     std::unordered_map<std::string, std::string> knownReadings_;
+    std::deque<std::string> knownReadingsOrder_;
     Zhuyin zhuyin_;                      // live Chinese run; scratch while selecting
 };
 
-#endif // INPUTER_BUFFER_H
+#endif // ARI_IME_BUFFER_H

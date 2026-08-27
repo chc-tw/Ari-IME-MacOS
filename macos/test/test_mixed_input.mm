@@ -41,11 +41,11 @@ void checkBoundary(const char *keys, const char *english, int chineseChars,
                    const char *label) {
     ++checks;
     const std::string preedit = typeKeys(keys);
-    const auto graphemes = inputer::unicode::splitGraphemes(preedit);
+    const auto graphemes = ari_ime::unicode::splitGraphemes(preedit);
     const bool prefixOk = preedit.rfind(english, 0) == 0;
     const int total = static_cast<int>(graphemes.size());
     const int expected =
-        static_cast<int>(inputer::unicode::splitGraphemes(english).size()) +
+        static_cast<int>(ari_ime::unicode::splitGraphemes(english).size()) +
         chineseChars;
     if (!prefixOk || total != expected) {
         ++failures;
@@ -60,9 +60,9 @@ int main() {
     @autoreleasepool {
         NSString *sandbox = [NSTemporaryDirectory()
             stringByAppendingPathComponent:@"ari-mixed-input-test"];
-        setenv("INPUTER_USER_DATA_DIR", sandbox.UTF8String, 1);
+        setenv("ARI_IME_USER_DATA_DIR", sandbox.UTF8String, 1);
         setenv("CHEWING_USER_PATH", sandbox.UTF8String, 1);
-        setenv("INPUTER_DISABLE_AUTOLEARN", "1", 1);
+        setenv("ARI_IME_DISABLE_AUTOLEARN", "1", 1);
 
         // --- The reported failures: the initial was being stranded ---------
         // "ui" is a valid Bopomofo body (ㄧㄛ), so the ㄏ that follows used to
