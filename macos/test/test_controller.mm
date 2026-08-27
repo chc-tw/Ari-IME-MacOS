@@ -467,6 +467,23 @@ int main() {
                     "the caret returns to the end");
         }
 
+        { // Esc leaves the candidate window on the same character, so ↓ reopens
+          // that one rather than walking backwards through the line.
+            Session s;
+            s.type(@"su3cl3ji3");          // 你好我
+            s.send(kVK_DownArrow, @"");
+            checkEq(s.selectedCharacter(), @"我", "↓ opens on the last character");
+            s.send(kVK_Escape, @"\x1b");
+            s.send(kVK_DownArrow, @"");
+            checkEq(s.selectedCharacter(), @"我",
+                    "↓ after Esc reopens the same character");
+            s.send(kVK_Escape, @"\x1b");
+            s.send(kVK_LeftArrow, @"");    // step one character back
+            s.send(kVK_DownArrow, @"");
+            checkEq(s.selectedCharacter(), @"好",
+                    "← then ↓ moves to the character before it");
+        }
+
         { // Command shortcuts are never swallowed.
             Session s;
             check(!s.send(kVK_ANSI_C, @"c", NSEventModifierFlagCommand),

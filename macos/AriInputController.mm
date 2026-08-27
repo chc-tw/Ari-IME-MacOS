@@ -369,7 +369,18 @@ AriCandidateWindow *sharedCandidateWindow() {
         self.buffer.handleKey(fcitx::Key(FcitxKey_Left));
     }
 
+    // Leaving the candidate window puts the caret in front of the character
+    // that was being edited, which under "the caret follows the character"
+    // reads as standing before the *previous* one — so reopening the window
+    // walked backwards through the line. Step past it, so Esc leaves the caret
+    // just after the character last looked at and ↓ reopens that same one.
+    const bool leavingCandidates =
+        translated.key.sym() == FcitxKey_Escape && self.buffer.isPicking();
+
     const KeyResult result = self.buffer.handleKey(translated.key);
+    if (leavingCandidates && self.buffer.isEditing()) {
+        self.buffer.handleKey(fcitx::Key(FcitxKey_Right));
+    }
 
     // Escape during reconversion must give the original text back.
     if (_reconversionActive && translated.key.sym() == FcitxKey_Escape &&
