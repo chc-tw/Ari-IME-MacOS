@@ -81,6 +81,16 @@ set_source_files_properties(
 target_sources(AriIME PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/ari.tiff"
     "${CMAKE_CURRENT_LIST_DIR}/AriIME.icns")
+
+# Text Input Services looks up an input mode's display name by its identifier,
+# so without these the input source list shows the raw identifier.
+foreach(ari_lproj zh-Hant en)
+    set(ari_strings
+        "${CMAKE_CURRENT_LIST_DIR}/Resources/${ari_lproj}.lproj/InfoPlist.strings")
+    set_source_files_properties("${ari_strings}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources/${ari_lproj}.lproj")
+    target_sources(AriIME PRIVATE "${ari_strings}")
+endforeach()
 target_compile_options(AriIME PRIVATE -Wall -Wextra
     $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 set_target_properties(AriIME PROPERTIES

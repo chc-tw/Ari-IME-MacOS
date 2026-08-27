@@ -26,6 +26,8 @@
     <string>@PROJECT_VERSION@</string>
     <key>LSMinimumSystemVersion</key>
     <string>@CMAKE_OSX_DEPLOYMENT_TARGET@</string>
+    <key>LSHasLocalizedDisplayName</key>
+    <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
     <!-- Input methods run as agents: no Dock tile. -->

@@ -28,7 +28,11 @@ rm -rf "$dest"
 cp -R "$app" "$dest"
 
 # Ad-hoc signature: macOS refuses to load an unsigned input method bundle.
-codesign --force --deep --sign - "$dest"
+# With no Developer ID there is no verified identity behind the app, so the
+# lists that would name the developer fall back to the signing identifier —
+# which is why an unnamed build shows up as its bundle id. Give the identifier
+# the name we want shown until the app is signed properly (M5).
+codesign --force --deep --identifier "Ari IME" --sign - "$dest"
 
 # Register the bundle so it appears in System Settings > Input Sources.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \

@@ -1,0 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+"CFBundleName" = "Ari IME";
+"CFBundleDisplayName" = "Ari IME";
+"io.github.chctw.inputmethod.AriIME.Zhuyin" = "Ari Bopomofo";

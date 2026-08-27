@@ -1,0 +1,6 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Text Input Services looks the input mode's display name up by its own
+   identifier; without this the input source list shows the raw identifier. */
+"CFBundleName" = "Ari 輸入法";
+"CFBundleDisplayName" = "Ari 輸入法";
+"io.github.chctw.inputmethod.AriIME.Zhuyin" = "Ari 注音";
