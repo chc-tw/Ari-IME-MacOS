@@ -356,6 +356,9 @@ AriCandidateWindow *sharedCandidateWindow() {
         if (alternatives.size() > 1) {
             _alternatives = std::move(alternatives);
             _adjudicating = target;
+            // Each character is a fresh question; the row reached on the last
+            // one means nothing here.
+            _adjudicationHighlight = 0;
             [self updateUIForClient:sender];
             return YES;
         }

@@ -74,9 +74,13 @@ add_executable(AriIME MACOSX_BUNDLE
 )
 target_link_libraries(AriIME PRIVATE ari-core
     "-framework Cocoa" "-framework Carbon" "-framework InputMethodKit")
-set_source_files_properties("${CMAKE_CURRENT_LIST_DIR}/ari.tiff" PROPERTIES
-    MACOSX_PACKAGE_LOCATION Resources)
-target_sources(AriIME PRIVATE "${CMAKE_CURRENT_LIST_DIR}/ari.tiff")
+set_source_files_properties(
+    "${CMAKE_CURRENT_LIST_DIR}/ari.tiff"
+    "${CMAKE_CURRENT_LIST_DIR}/AriIME.icns"
+    PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+target_sources(AriIME PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/ari.tiff"
+    "${CMAKE_CURRENT_LIST_DIR}/AriIME.icns")
 target_compile_options(AriIME PRIVATE -Wall -Wextra
     $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 set_target_properties(AriIME PROPERTIES

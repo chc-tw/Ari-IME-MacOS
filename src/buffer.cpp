@@ -3024,6 +3024,38 @@ Buffer::boundaryAlternatives(int idx) const {
         }
         alternatives.push_back({keys.substr(0, k), character, keys});
     }
+
+    // The symbols themselves are a reading too: writing about pronunciation
+    // needs ㄋㄧˇ, not 你. Offer it for the most Chinese of the readings, which
+    // is the one whose syllable covers the most keys.
+    if (alternatives.size() > 1) {
+        const BoundaryAlternative &most = alternatives.back();
+        const std::string body = most.keys.substr(most.english.size());
+        static Zhuyin *probe = nullptr;
+        static ari_ime::KeyboardLayout probeLayout =
+            ari_ime::KeyboardLayout::Default;
+        Zhuyin *ctx = probeForCurrentLayout(probe, probeLayout);
+
+        // A complete syllable converts, leaving no pending Bopomofo to read, so
+        // build the reading in two parts: the body without its tone, and the
+        // tone key on its own, which chewing reports as its mark. 一聲 has no
+        // mark, and correctly contributes nothing.
+        std::string base;
+        std::string tone;
+        for (char c : ari_ime::canonicalKeys(body)) {
+            (ari_ime::isToneKey(c) ? tone : base).push_back(c);
+        }
+        ctx->feedSequence(base);
+        std::string symbols = ctx->bopomofoString();
+        if (!symbols.empty() && !tone.empty()) {
+            ctx->feedSequence(tone);
+            symbols += ctx->bopomofoString();
+        }
+        ctx->resetAll();
+        if (!symbols.empty()) {
+            alternatives.push_back({most.english, symbols, most.keys});
+        }
+    }
     return alternatives;
 }
 

@@ -10,6 +10,12 @@
     <string>@ARI_BUNDLE_ID@</string>
     <key>CFBundleName</key>
     <string>Ari IME</string>
+    <key>CFBundleDisplayName</key>
+    <string>Ari IME</string>
+    <key>CFBundleIconFile</key>
+    <string>AriIME</string>
+    <key>CFBundleIconName</key>
+    <string>AriIME</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleSignature</key>
