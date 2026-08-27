@@ -21,6 +21,7 @@
 #import "AriCandidateWindow.h"
 #import "AriHUD.h"
 #import "AriPreferences.h"
+#import "AriPreferencesWindow.h"
 #import "KeyMap.h"
 
 namespace {
@@ -655,6 +656,23 @@ AriCandidateWindow *sharedCandidateWindow() {
         return @"";
     }
     return toNSString(graphemes[static_cast<std::size_t>(index)]);
+}
+
+// The input menu, shown from the menu bar's input source item.
+- (NSMenu *)menu {
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Ari"];
+    NSMenuItem *preferences =
+        [[NSMenuItem alloc] initWithTitle:@"設定…"
+                                   action:@selector(showPreferences:)
+                            keyEquivalent:@""];
+    preferences.target = self;
+    [menu addItem:preferences];
+    return menu;
+}
+
+- (void)showPreferences:(id)sender {
+    (void)sender;
+    [[AriPreferencesWindow shared] show];
 }
 
 - (int)ari_candidatePage {

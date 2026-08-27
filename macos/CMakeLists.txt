@@ -69,6 +69,7 @@ add_executable(AriIME MACOSX_BUNDLE
     "${CMAKE_CURRENT_LIST_DIR}/AriCandidateWindow.mm"
     "${CMAKE_CURRENT_LIST_DIR}/AriHUD.mm"
     "${CMAKE_CURRENT_LIST_DIR}/AriPreferences.mm"
+    "${CMAKE_CURRENT_LIST_DIR}/AriPreferencesWindow.mm"
     "${CMAKE_CURRENT_LIST_DIR}/KeyMap.mm"
 )
 target_link_libraries(AriIME PRIVATE ari-core
@@ -156,7 +157,8 @@ elseif(BUILD_TESTING)
         "${CMAKE_CURRENT_LIST_DIR}/AriInputController.mm"
         "${CMAKE_CURRENT_LIST_DIR}/AriCandidateWindow.mm"
         "${CMAKE_CURRENT_LIST_DIR}/AriHUD.mm"
-        "${CMAKE_CURRENT_LIST_DIR}/AriPreferences.mm")
+        "${CMAKE_CURRENT_LIST_DIR}/AriPreferences.mm"
+        "${CMAKE_CURRENT_LIST_DIR}/AriPreferencesWindow.mm")
 
     target_include_directories(ari-frontend PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
     target_link_libraries(ari-frontend PUBLIC ari-core
@@ -176,6 +178,7 @@ elseif(BUILD_TESTING)
 
     ari_add_frontend_test(test_keymap test_keymap.mm)
     ari_add_frontend_test(test_preferences test_preferences.mm)
+    ari_add_frontend_test(test_preferences_window test_preferences_window.mm)
     ari_add_frontend_test(test_mixed_input test_mixed_input.mm)
     ari_add_frontend_test(test_controller test_controller.mm)
 
