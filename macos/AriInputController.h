@@ -11,4 +11,11 @@
 @interface AriInputController : IMKInputController
 @end
 
+// Test-only window onto the composition state, so the frontend tests can assert
+// on what the user is about to edit rather than on internal buffer members.
+@interface AriInputController (Testing)
+- (BOOL)ari_isPicking;
+- (NSString *)ari_selectedCharacter;
+@end
+
 #endif // ARI_MACOS_INPUT_CONTROLLER_H

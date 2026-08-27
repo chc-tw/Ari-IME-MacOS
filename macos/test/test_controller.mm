@@ -165,6 +165,9 @@ struct Session {
                                 client:client];
     }
 
+    bool buffer_isPicking() { return [controller ari_isPicking]; }
+    NSString *selectedCharacter() { return [controller ari_selectedCharacter]; }
+
     // Type ASCII through the same path a keyboard would: real key codes, and
     // Shift where the layout requires it.
     void type(NSString *text) {
@@ -400,6 +403,26 @@ int main() {
             Session s;
             s.type(@"su3");
             checkEq(s.client.markedText, @"你", "lowercase still composes");
+        }
+
+        { // ↓ edits the character before the caret, as macOS input methods do.
+            Session s;
+            s.type(@"su3cl3");
+            checkEq(s.client.markedText, @"你好", "two characters composed");
+            s.send(kVK_DownArrow, @"");
+            check(s.buffer_isPicking(), "Down opens the candidate window");
+            checkEq(s.selectedCharacter(), @"好", "it targets the last character");
+        }
+
+        { // Mid-string it targets the character behind the caret, not ahead.
+            Session s;
+            s.type(@"su3cl3");
+            s.send(kVK_LeftArrow, @"");   // caret between 你 and 好
+            s.send(kVK_LeftArrow, @"");   // caret before 你
+            s.send(kVK_RightArrow, @"");  // caret between 你 and 好 again
+            s.send(kVK_DownArrow, @"");
+            checkEq(s.selectedCharacter(), @"你",
+                    "the character behind the caret is the one edited");
         }
 
         { // Command shortcuts are never swallowed.

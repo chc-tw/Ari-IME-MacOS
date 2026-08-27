@@ -308,6 +308,20 @@ AriCandidateWindow *sharedCandidateWindow() {
         return NO;
     }
 
+    // ↓ opens candidates for the character the caret points at — the one to its
+    // right, or the last one when the caret is at the end. Every macOS input
+    // method edits the character *before* the caret instead, which is also what
+    // "fix what I just typed" means while the caret sits at the end.
+    //
+    // Stepping the caret left first turns one into the other without touching
+    // the core: the caret then points at the character the user meant, and it
+    // stays beside the character that changes rather than jumping away.
+    if (translated.key.sym() == FcitxKey_Down && !self.buffer.isPicking() &&
+        !self.buffer.preeditText().empty() &&
+        (modifiers & ~static_cast<std::uint32_t>(ari::ModCapsLock)) == 0) {
+        self.buffer.handleKey(fcitx::Key(FcitxKey_Left));
+    }
+
     const KeyResult result = self.buffer.handleKey(translated.key);
 
     // Escape during reconversion must give the original text back.
@@ -601,6 +615,22 @@ AriCandidateWindow *sharedCandidateWindow() {
         return;
     }
     [super setValue:value forTag:tag client:sender];
+}
+
+// --- Test-only accessors, declared in the Testing category -----------------
+
+- (BOOL)ari_isPicking {
+    return self.buffer.isPicking();
+}
+
+- (NSString *)ari_selectedCharacter {
+    const std::string preedit = self.buffer.preeditText();
+    const auto graphemes = ari_ime::unicode::splitGraphemes(preedit);
+    const int index = self.buffer.selectionChar();
+    if (index < 0 || index >= static_cast<int>(graphemes.size())) {
+        return @"";
+    }
+    return toNSString(graphemes[static_cast<std::size_t>(index)]);
 }
 
 - (void)commitComposition:(id)sender {
