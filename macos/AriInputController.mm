@@ -218,7 +218,6 @@ AriCandidateWindow *sharedCandidateWindow() {
     }
     self.buffer.setChinesePunctuationShortcut(preferences.punctuationShortcut);
     self.buffer.setSpaceCandidateMode(preferences.spaceCandidateMode);
-    self.buffer.setUppercaseIsEnglish(preferences.uppercaseIsEnglish);
 
     // macOS reports secure input globally rather than per field, so Ari takes
     // the conservative reading: while any application has secure input on,
@@ -244,6 +243,16 @@ AriCandidateWindow *sharedCandidateWindow() {
     const std::string character = ari::shiftedCharacterForKeyCode(
         event.keyCode, (modifiers & ari::ModShift) != 0,
         (modifiers & ari::ModCapsLock) != 0);
+    // "A capital is English" means a capital the user reached for, with Shift.
+    // A capital that is merely the state of Caps Lock is not evidence of
+    // anything, and treating it as such would stop Bopomofo working entirely
+    // while the lock is on — including right after Caps Lock is used to switch
+    // back to Chinese.
+    const bool capitalIsDeliberate =
+        (modifiers & ari::ModShift) || !(modifiers & ari::ModCapsLock);
+    self.buffer.setUppercaseIsEnglish(preferences.uppercaseIsEnglish &&
+                                      capitalIsDeliberate);
+
     // The core has one switch for "full-width punctuation", which covers both
     // Chinese punctuation (，。「」？！) and full-width forms of the symbols a
     // programmer types inside Chinese text (＠＃％＆). The system Bopomofo input
@@ -448,11 +457,20 @@ AriCandidateWindow *sharedCandidateWindow() {
         // panel to where the composition started and leaves it there while the
         // text grows. Ask about the caret instead, and fall back to the start
         // for clients that only answer for index 0.
+        // The index is an offset into the marked text. Index 0 pins the panel
+        // where the composition started and leaves it there while the text
+        // grows, and an index one past the end is out of range, so ask about
+        // the last character before the caret and take its right edge.
         const std::string preedit = self.buffer.preeditText();
         const NSUInteger caret =
             utf16OffsetForGrapheme(preedit, self.buffer.caretChar());
         if (caret > 0) {
-            [sender attributesForCharacterIndex:caret lineHeightRectangle:&rect];
+            [sender attributesForCharacterIndex:caret - 1
+                        lineHeightRectangle:&rect];
+            if (!NSIsEmptyRect(rect)) {
+                rect.origin.x = NSMaxX(rect);
+                rect.size.width = 1;
+            }
         }
         if (NSIsEmptyRect(rect)) {
             [sender attributesForCharacterIndex:0 lineHeightRectangle:&rect];

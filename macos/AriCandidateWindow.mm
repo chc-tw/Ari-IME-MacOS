@@ -72,9 +72,15 @@
         NSFontAttributeName : [NSFont systemFontOfSize:15]
     };
 
+    // Only separate the auxiliary line from what follows when something does
+    // follow: a trailing newline with nothing after it renders as a second,
+    // empty line, which is a whole spare row on the reading-only panel.
     if (auxUp.length > 0) {
+        NSString *line = candidates.count > 0 || auxDown.length > 0
+                             ? [auxUp stringByAppendingString:@"\n"]
+                             : auxUp;
         [text appendAttributedString:[[NSAttributedString alloc]
-                                         initWithString:[auxUp stringByAppendingString:@"\n"]
+                                         initWithString:line
                                              attributes:dim]];
     }
     for (NSUInteger i = 0; i < candidates.count; ++i) {
