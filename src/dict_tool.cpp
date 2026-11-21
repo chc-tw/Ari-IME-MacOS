@@ -92,10 +92,11 @@ bool isCanonicalReading(const std::string &phrase,
             return false;
         }
         const bool letter = cp.value >= 0x3105 && cp.value <= 0x3129;
+        // ˇ ˉ ˊ ˋ ˌ ˗ · and ˙ (U+02D9), the neutral tone libchewing exports.
         const bool tone =
             cp.value == 0x02C7 || cp.value == 0x02C9 || cp.value == 0x02CA ||
             cp.value == 0x02CB || cp.value == 0x02CC || cp.value == 0x02D7 ||
-            cp.value == 0x00B7;
+            cp.value == 0x00B7 || cp.value == 0x02D9;
         if (letter) {
             if (toneSeen) {
                 return false;
