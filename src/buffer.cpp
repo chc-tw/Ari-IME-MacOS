@@ -16,8 +16,17 @@
 #include "constants.h"
 #include "layout.h"
 #include "unicode.h"
+#include "user_override.h"
 
 namespace {
+
+// One short-term pick memory for the whole process, shared by every input
+// context the way McBopomofo shares its UserOverrideModel: 500 contexts, each
+// decaying with a 1.5-hour half-life.
+ari_ime::UserOverrideModel &userOverrides() {
+    static ari_ime::UserOverrideModel model(500, 5400.0);
+    return model;
+}
 
 constexpr int kPunctuationCandidateDown = -2;
 
@@ -578,6 +587,23 @@ std::pair<std::string, bool> typedBody(const std::string &typed,
     return readingBody(typed.empty() ? reading : typed);
 }
 
+// The Bopomofo of one cell reading ("su3" -> ㄋㄧˇ, "c8 " -> ㄏㄚ), in the
+// form libchewing's userphrase API takes. A converted syllable leaves nothing
+// pending to read, so the body and the tone key are read separately; 一聲 has
+// no mark and contributes nothing.
+std::string bopomofoForReading(const std::string &reading) {
+    std::string base;
+    std::string tone;
+    for (char c : ari_ime::canonicalKeys(readingBody(reading).first)) {
+        (ari_ime::isToneKey(c) ? tone : base).push_back(c);
+    }
+    std::string symbols = bopomofoForKeys(base);
+    if (!symbols.empty() && !tone.empty()) {
+        symbols += bopomofoForKeys(tone);
+    }
+    return symbols;
+}
+
 bool isAsciiLower(char c) {
     return c >= 'a' && c <= 'z';
 }
@@ -749,6 +775,7 @@ void Buffer::reset() {
     cells_.clear();
     tail_.clear();
     runReadings_.clear();
+    runOverrides_.clear();
     runTyped_.clear();
     englishBuf_.clear();
     invalidPrefixLength_ = 0;
@@ -803,6 +830,7 @@ void Buffer::moveAutoCommit() {
         std::string typed = i < runTyped_.size() ? runTyped_[i] : "";
         cells_.push_back({true, chars[i], reading, std::move(typed)});
     }
+    pinRunCells(cells_.size() - chars.size(), chars.size());
     std::size_t n = std::min(chars.size(), runReadings_.size());
     runReadings_.erase(runReadings_.begin(), runReadings_.begin() + n);
     runTyped_.erase(runTyped_.begin(), runTyped_.begin() + n);
@@ -815,9 +843,28 @@ void Buffer::freezeRun() {
         std::string typed = i < runTyped_.size() ? runTyped_[i] : "";
         cells_.push_back({true, chars[i], reading, std::move(typed)});
     }
+    pinRunCells(cells_.size() - chars.size(), chars.size());
+    runOverrides_.clear();
     runReadings_.clear();
     runTyped_.clear();
     zhuyin_.resetAll();
+}
+
+void Buffer::pinRunCells(std::size_t firstCell, std::size_t count) {
+    // The run's first `count` characters have just become cells_ starting at
+    // `firstCell`. A remembered pick that chewing applied there is pinned like
+    // an explicit one, so re-feeding the run for candidates cannot revert it.
+    std::vector<std::pair<int, int>> remaining;
+    const int n = static_cast<int>(count);
+    for (const auto &[start, end] : runOverrides_) {
+        for (int k = start; k < std::min(end, n); ++k) {
+            cells_[firstCell + static_cast<std::size_t>(k)].locked = true;
+        }
+        if (end > n) {
+            remaining.emplace_back(std::max(0, start - n), end - n);
+        }
+    }
+    runOverrides_ = std::move(remaining);
 }
 
 void Buffer::freezeEnglish() {
@@ -1115,8 +1162,18 @@ KeyResult Buffer::handleKey(const fcitx::Key &key) {
         return {true, false, {}, true, /*notifyMode=*/true};
     }
 
+    const std::vector<std::string> runBefore = runReadings_;
     KeyResult result = handleAuto(key);
     applyRememberedBoundaryToRun();
+    // A syllable joined (or started) the live run: offer the short-term memory
+    // the newest word, as McBopomofo does after every inserted reading.
+    // Backspace only cuts the run back to a prefix of itself and never asks.
+    const bool cutBack =
+        runReadings_.size() < runBefore.size() &&
+        std::equal(runReadings_.begin(), runReadings_.end(), runBefore.begin());
+    if (runReadings_ != runBefore && !cutBack) {
+        applyUserOverrideToRun();
+    }
     return result;
 }
 
@@ -1384,6 +1441,7 @@ KeyResult Buffer::handleChar(char c, bool literal) {
             cells_.push_back({false, std::string(1, punctuation), {}});
             zhuyin_.feedSequence(canonicalSuffix);
             runReadings_ = {canonicalSuffix};
+            runOverrides_.clear();
             runTyped_ = {suffix};
             zhuyin_.promoteUserPhrases();
             moveAutoCommit();
@@ -1429,6 +1487,7 @@ void Buffer::integrateSyllable(const std::string &body,
         freezeEnglish();
         zhuyin_.feedSequence(body);
         runReadings_ = {body};
+        runOverrides_.clear();
         runTyped_ = {typed};
     } else if (zhuyin_.hasConverted()) {
         // Extend the live run so chewing's phrasing spans it.
@@ -1440,6 +1499,7 @@ void Buffer::integrateSyllable(const std::string &body,
     } else {
         zhuyin_.feedSequence(body);
         runReadings_ = {body};
+        runOverrides_.clear();
         runTyped_ = {typed};
     }
     // Keep libchewing's contextual conversion. On older libchewing releases
@@ -1674,6 +1734,7 @@ bool Buffer::tryPeelEnglish(char tone, KeyResult &out) {
         }
         zhuyin_.feedSequence(syllable);
         runReadings_ = {syllable};
+        runOverrides_.clear();
         runTyped_ = {body + std::string(1, tone)};
         zhuyin_.promoteUserPhrases();
         moveAutoCommit();
@@ -1797,6 +1858,7 @@ bool Buffer::tryPeelEnglishTone1(KeyResult &out) {
         zhuyin_.feedSequence(syllable);
         zhuyin_.handleSpace();
         runReadings_ = {syllable + " "};
+        runOverrides_.clear();
         runTyped_ = {body + " "};
         zhuyin_.promoteUserPhrases();
         moveAutoCommit();
@@ -1897,6 +1959,7 @@ KeyResult Buffer::handleSpace() {
                 freezeEnglish();
                 zhuyin_.feedSequence(body);
                 runReadings_.clear();
+                runOverrides_.clear();
                 runTyped_.clear();
             } else if (zhuyin_.hasConverted()) {
                 for (char k : body) {
@@ -1905,6 +1968,7 @@ KeyResult Buffer::handleSpace() {
             } else {
                 zhuyin_.feedSequence(body);
                 runReadings_.clear();
+                runOverrides_.clear();
                 runTyped_.clear();
             }
             zhuyin_.handleSpace();             // 一聲
@@ -1949,119 +2013,34 @@ KeyResult Buffer::handleEnter() {
     // completes the last token, and a remembered adjudication is applied there.
     std::string out = preeditText();
     if (learningAllowed_) {
-        learnFromCells(); // teach chewing the chosen readings -> characters
+        learnFromCells(); // remember readings for later reconversion
     }
     reset();
     return {true, true, out, true};
 }
 
 void Buffer::learnFromCells() {
-    struct ExplicitSpan {
-        int start;
-        int end;
-        int runStart;
-        int runEnd;
-    };
-    std::vector<ExplicitSpan> explicitSpans;
-
-    int i = 0;
-    while (i < static_cast<int>(cells_.size())) {
-        if (!cells_[i].chinese) {
-            ++i;
+    // Commit no longer teaches libchewing anything. Following McBopomofo, a
+    // pick is remembered by the short-term, context-keyed, decaying model at the
+    // moment it is made (pickCandidate); only phrases the user deliberately adds
+    // are permanent. What remains is the reading cache that lets committed text
+    // be reconverted later.
+    for (const Cell &cell : cells_) {
+        if (!cell.chinese || cell.reading.empty()) {
             continue;
         }
-        for (int j = i; j < static_cast<int>(cells_.size()) &&
-                        cells_[j].chinese;
-             ++j) {
-            if (!cells_[j].reading.empty()) {
-                auto [entry, inserted] =
-                    knownReadings_.try_emplace(cells_[j].text,
-                                               cells_[j].reading);
-                if (inserted) {
-                    knownReadingsOrder_.push_back(entry->first);
-                }
-            }
-        }
-        constexpr std::size_t kMaxKnownReadings = 4096;
-        while (knownReadings_.size() > kMaxKnownReadings &&
-               !knownReadingsOrder_.empty()) {
-            knownReadings_.erase(knownReadingsOrder_.front());
-            knownReadingsOrder_.pop_front();
-        }
-        int s = i;
-        while (i < static_cast<int>(cells_.size()) && cells_[i].chinese) {
-            ++i;
-        }
-        int e = i - 1;
-
-        // Unchanged output is still useful evidence: one accepted pass gives it
-        // a low positive weight instead of treating "not selected" as wrong.
-        learnRange(s, e, 1);
-
-        for (int j = s; j <= e;) {
-            if (cells_[j].selectionGroup == 0) {
-                ++j;
-                continue;
-            }
-            const int group = cells_[j].selectionGroup;
-            const int groupStart = j;
-            while (j <= e && cells_[j].selectionGroup == group) {
-                ++j;
-            }
-            explicitSpans.push_back({groupStart, j - 1, s, e});
+        auto [entry, inserted] =
+            knownReadings_.try_emplace(cell.text, cell.reading);
+        if (inserted) {
+            knownReadingsOrder_.push_back(entry->first);
         }
     }
-
-    for (const auto &span : explicitSpans) {
-        // The weak pass above plus these three passes gives a deliberate choice
-        // roughly four times the evidence of an unchanged conversion.
-        if (!learnRange(span.start, span.end, 3)) {
-            continue;
-        }
-        std::string phrase;
-        for (int j = span.start; j <= span.end; ++j) {
-            phrase += cells_[j].text;
-        }
-        // Only persist a deliberate choice after its exact text was replayed.
-        zhuyin_.rememberPreferredPhrase(phrase);
-
-        // One short context pass teaches where this choice was made without
-        // turning an entire sentence into a high-weight personal phrase.
-        const int contextStart = std::max(span.runStart, span.start - 1);
-        const int contextEnd = std::min(span.runEnd, span.end + 1);
-        if (contextStart != span.start || contextEnd != span.end) {
-            learnRange(contextStart, contextEnd, 1);
-        }
+    constexpr std::size_t kMaxKnownReadings = 4096;
+    while (knownReadings_.size() > kMaxKnownReadings &&
+           !knownReadingsOrder_.empty()) {
+        knownReadings_.erase(knownReadingsOrder_.front());
+        knownReadingsOrder_.pop_front();
     }
-    zhuyin_.resetAll();
-}
-
-bool Buffer::learnRange(int start, int end, int passes) {
-    bool allReplayed = true;
-    for (int chunkStart = start; chunkStart <= end;
-         chunkStart += ari_ime::kMaxCompositionChars) {
-        const int chunkEnd =
-            std::min(end, chunkStart + ari_ime::kMaxCompositionChars - 1);
-        std::string expected;
-        for (int j = chunkStart; j <= chunkEnd; ++j) {
-            expected += cells_[j].text;
-        }
-        for (int pass = 0; pass < passes; ++pass) {
-            feedRun(chunkStart, chunkEnd, 0);
-            relockRun(chunkStart, chunkEnd, /*onlyLocked=*/false);
-            if (zhuyin_.preedit() != expected) {
-                // A reading may no longer resolve to the displayed choice.
-                // Never train a different phrase under that reading.
-                zhuyin_.resetAll();
-                allReplayed = false;
-                break;
-            }
-            // Enter commits and updates libchewing's local model.
-            zhuyin_.handleEnter();
-            zhuyin_.takeCommit(); // Output already comes from cells_; discard replay.
-        }
-    }
-    return allReplayed;
 }
 
 KeyResult Buffer::handleBackspace() {
@@ -2102,6 +2081,13 @@ KeyResult Buffer::handleBackspace() {
             if (typedParts == readingParts) {
                 zhuyin_.handleBackspace();
                 runReadings_.pop_back();
+                const int remaining = static_cast<int>(runReadings_.size());
+                runOverrides_.erase(
+                    std::remove_if(runOverrides_.begin(), runOverrides_.end(),
+                                   [remaining](const auto &pin) {
+                                       return pin.second > remaining;
+                                   }),
+                    runOverrides_.end());
                 if (!runTyped_.empty()) {
                     runTyped_.pop_back();
                 }
@@ -2112,6 +2098,7 @@ KeyResult Buffer::handleBackspace() {
             if (!runTyped_.empty()) {
                 runTyped_.pop_back();
             }
+            runOverrides_.clear();
 
             zhuyin_.resetAll();
             for (const std::string &savedReading : runReadings_) {
@@ -2494,6 +2481,7 @@ KeyResult Buffer::enterSelection(const fcitx::Key &key, bool startAtBeginning) {
 }
 
 void Buffer::exitSelection() {
+    markAnchor_ = -1;
     selecting_ = false;
     candOpen_ = false;
     caretPos_ = 0;
@@ -2605,6 +2593,206 @@ KeyResult Buffer::moveCaretByPhrase(int direction) {
     return {true, false, {}, true};
 }
 
+bool Buffer::userOverridesAllowed() const {
+    // Sensitive fields and the user's own setting turn it off, and so does the
+    // process-wide autolearn switch, which keeps tests deterministic.
+    return learningAllowed_ && ari_ime::autoLearnEnabled();
+}
+
+void Buffer::clearUserOverrides() { userOverrides().clear(); }
+
+ari_ime::UserOverrideModel::Walk
+Buffer::chewingWalk(const std::vector<std::string> &readings) {
+    // The words of chewing's current conversion, in order. Every Chinese
+    // character belongs to some interval; a gap (a symbol) becomes a word of its
+    // own so offsets stay aligned with the run.
+    ari_ime::UserOverrideModel::Walk walk;
+    const auto chars = splitUtf8(zhuyin_.preedit());
+    const int n = static_cast<int>(chars.size());
+    if (n == 0 || static_cast<int>(readings.size()) < n) {
+        return walk;
+    }
+    auto addNode = [&](int from, int to) {
+        ari_ime::UserOverrideModel::Node node;
+        for (int k = from; k < to; ++k) {
+            if (k > from) {
+                node.reading += '-';
+            }
+            node.reading += readings[static_cast<std::size_t>(k)];
+            node.value += chars[static_cast<std::size_t>(k)];
+        }
+        // An unselected word already is the dictionary's choice for its
+        // syllables; observeUserOverride() looks up the real one where needed.
+        node.topValue = node.value;
+        node.length = to - from;
+        walk.push_back(std::move(node));
+    };
+    int at = 0;
+    for (const auto &[from, to] : zhuyin_.phraseIntervals()) {
+        if (from < at || to > n) {
+            continue;
+        }
+        for (; at < from; ++at) {
+            addNode(at, at + 1);
+        }
+        addNode(from, to);
+        at = to;
+    }
+    for (; at < n; ++at) {
+        addNode(at, at + 1);
+    }
+    return walk;
+}
+
+std::string Buffer::topCandidateAt(int offset, int length) {
+    // The dictionary's first choice for exactly `length` syllables starting at
+    // `offset` of the loaded run. Candidate lists depend only on the syllables,
+    // so this is unaffected by what is currently selected there.
+    std::string top;
+    zhuyin_.closeCandidates();
+    zhuyin_.handleHome();
+    for (int i = 0; i < offset; ++i) {
+        zhuyin_.handleRight();
+    }
+    if (zhuyin_.openCandidates()) {
+        for (int guard = 0; guard < ari_ime::kMaxSyllables; ++guard) {
+            if (zhuyin_.candidateCount() <= 0) {
+                break;
+            }
+            const std::string first = zhuyin_.candidate(0);
+            const int firstLength = utf8Count(first);
+            if (firstLength == length) {
+                top = first;
+                break;
+            }
+            if (firstLength < length) {
+                break;
+            }
+            zhuyin_.handleDown();
+        }
+    }
+    zhuyin_.closeCandidates();
+    zhuyin_.handleEnd();
+    return top;
+}
+
+bool Buffer::selectRunCandidate(int offset, const std::string &text) {
+    // Choose `text` for the syllables starting at `offset` of the live run, the
+    // same way a pick does, then put the cursor back at the end for typing.
+    const int length = utf8Count(text);
+    bool chosen = false;
+    zhuyin_.closeCandidates();
+    zhuyin_.handleHome();
+    for (int i = 0; i < offset; ++i) {
+        zhuyin_.handleRight();
+    }
+    if (zhuyin_.openCandidates()) {
+        for (int guard = 0; guard < ari_ime::kMaxSyllables && !chosen;
+             ++guard) {
+            const int total = zhuyin_.candidateCount();
+            if (total <= 0) {
+                break;
+            }
+            const int firstLength = utf8Count(zhuyin_.candidate(0));
+            if (firstLength == length) {
+                for (int idx = 0; idx < total; ++idx) {
+                    if (zhuyin_.candidate(idx) == text) {
+                        chooseGlobalCandidate(idx);
+                        chosen = true;
+                        break;
+                    }
+                }
+                break;
+            }
+            if (firstLength < length) {
+                break;
+            }
+            zhuyin_.handleDown();
+        }
+    }
+    zhuyin_.closeCandidates();
+    zhuyin_.handleEnd();
+    return chosen;
+}
+
+void Buffer::observeUserOverride(
+    const ari_ime::UserOverrideModel::Walk &before,
+    const std::vector<std::string> &readings, int pickedOffset) {
+    if (!userOverridesAllowed() || before.empty()) {
+        return;
+    }
+    auto after = chewingWalk(readings);
+    std::size_t picked = after.size();
+    int at = 0;
+    for (std::size_t i = 0; i < after.size(); ++i) {
+        if (at == pickedOffset) {
+            picked = i;
+            break;
+        }
+        at += after[i].length;
+    }
+    if (picked >= after.size()) {
+        return;
+    }
+    // The memory is keyed on what the dictionary itself would show, so a later
+    // conversion of the same words finds it. Before the pick a word may already
+    // have been chosen by hand or by the memory, so look the real one up for the
+    // nodes the observation can key on.
+    auto keyed = before;
+    int end = 0;
+    for (std::size_t i = 0; i <= picked; ++i) {
+        end += after[i].length;
+    }
+    int start = 0;
+    for (auto &node : keyed) {
+        if (start <= end - 1 && end - 1 < start + node.length) {
+            const std::string top = topCandidateAt(start, node.length);
+            if (!top.empty()) {
+                node.topValue = top;
+            }
+        }
+        start += node.length;
+    }
+    const std::string top = topCandidateAt(pickedOffset, after[picked].length);
+    if (!top.empty()) {
+        after[picked].topValue = top;
+    }
+    userOverrides().observe(keyed, after, picked,
+                            ari_ime::UserOverrideModel::now());
+}
+
+void Buffer::applyUserOverrideToRun() {
+    if (selecting_ || !userOverridesAllowed() || runReadings_.empty() ||
+        !zhuyin_.hasConverted() || userOverrides().size() == 0) {
+        return;
+    }
+    const auto walk = chewingWalk(runReadings_);
+    if (walk.empty()) {
+        return;
+    }
+    const int n = static_cast<int>(runReadings_.size());
+    const std::size_t head = walk.size() - 1;
+    const std::string suggestion = userOverrides().suggest(
+        walk, head, ari_ime::UserOverrideModel::now());
+    if (suggestion.empty() || suggestion == walk[head].value) {
+        return;
+    }
+    const int length = utf8Count(suggestion);
+    const int start = n - length;
+    if (length <= 0 || start < 0) {
+        return;
+    }
+    // Never undo a word the memory already settled earlier in this run.
+    for (const auto &[pinStart, pinEnd] : runOverrides_) {
+        if (pinStart < n && start < pinEnd) {
+            return;
+        }
+    }
+    if (selectRunCandidate(start, suggestion)) {
+        runOverrides_.emplace_back(start, n);
+    }
+}
+
 KeyResult Buffer::pickCandidate(int pageIndex) {
     int gi = selPage_ * ari_ime::kCandPerPage + pageIndex;
     if (gi < 0 || gi >= static_cast<int>(selCands_.size())) {
@@ -2632,6 +2820,11 @@ KeyResult Buffer::pickCandidate(int pageIndex) {
     if (sc.down < 0) {
         return revertCellToEnglish(); // the "raw keys" entry
     }
+    std::vector<std::string> runReadings;
+    for (int j = selRunStart_; j <= selRunEnd_; ++j) {
+        runReadings.push_back(cells_[j].reading);
+    }
+    const auto walkBefore = chewingWalk(runReadings);
     // Choose on the LIVE run (no re-feed) so chewing keeps earlier picks locked.
     // Reposition the cursor, walk to the candidate's interval, and choose it. A
     // phrase pick rewrites several cells, a single-character pick just one;
@@ -2648,6 +2841,7 @@ KeyResult Buffer::pickCandidate(int pageIndex) {
     }
     chooseGlobalCandidate(sc.idx);
     applyRunToCells();
+    observeUserOverride(walkBefore, runReadings, sc.startOffset);
     // Pin the characters the pick decided (one cell for a single, several for a
     // phrase) so re-opening selection later restores them (see relockRun).
     int picked = utf8Count(sc.text);
@@ -2728,6 +2922,7 @@ KeyResult Buffer::undoSelection() {
     exitSelection();
     cells_ = std::move(snapshot.cells);
     runReadings_.clear();
+    runOverrides_.clear();
     runTyped_.clear();
     tail_.clear();
     englishBuf_.clear();
@@ -2744,7 +2939,11 @@ KeyResult Buffer::forgetHighlightedCandidate() {
     }
 
     const std::string phrase = selCands_[gi].text;
-    const int removed = zhuyin_.forgetUserPhrase(phrase);
+    const int remembered = userOverrides().forget(phrase);
+    int removed = zhuyin_.forgetUserPhrase(phrase);
+    if (removed >= 0) {
+        removed += remembered;
+    }
     if (removed <= 0) {
         return {true, false, {}, false, false,
                 removed < 0 ? "無法移除個人學習紀錄"
@@ -3053,6 +3252,33 @@ KeyResult Buffer::handleCaret(const fcitx::Key &key) {
     auto sym = normalizeKeySym(key.sym());
     const int N = static_cast<int>(cells_.size());
 
+    // Shift+←/→ marks a span from where the caret was, and Enter adds it as a
+    // custom phrase — McBopomofo's gesture for its user phrases.
+    const bool shiftNavigation =
+        key.states().test(fcitx::KeyState::Shift) &&
+        !key.states().testAny(fcitx::KeyStates{
+            fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
+            fcitx::KeyState::Super});
+    if (shiftNavigation && (sym == FcitxKey_Left || sym == FcitxKey_Right)) {
+        if (markAnchor_ < 0) {
+            markAnchor_ = caretPos_;
+        }
+        caretPos_ = std::clamp(caretPos_ + (sym == FcitxKey_Left ? -1 : 1), 0, N);
+        if (caretPos_ == markAnchor_) {
+            markAnchor_ = -1;
+        }
+        return {true, false, {}, true};
+    }
+    if (markAnchor_ >= 0) {
+        if (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter) {
+            return addMarkedPhrase();
+        }
+        markAnchor_ = -1;
+        if (sym == FcitxKey_Escape) {
+            return {true, false, {}, true}; // drop the mark, keep editing
+        }
+    }
+
     const bool ctrlNavigation =
         key.states().test(fcitx::KeyState::Ctrl) &&
         !key.states().testAny(fcitx::KeyStates{
@@ -3135,6 +3361,87 @@ KeyResult Buffer::handleCaret(const fcitx::Key &key) {
     // Other control keys: leave editing and let the application handle them.
     exitSelection();
     return handleAuto(key);
+}
+
+std::pair<int, int> Buffer::markedRange() const {
+    // Character offsets of the marked cells, for the frontend to draw.
+    if (!selecting_ || candOpen_ || markAnchor_ < 0) {
+        return {-1, -1};
+    }
+    const int from = std::min(markAnchor_, caretPos_);
+    const int to = std::max(markAnchor_, caretPos_);
+    int start = 0;
+    for (int i = 0; i < from; ++i) {
+        start += utf8Count(cells_[i].text);
+    }
+    int end = start;
+    for (int i = from; i < to; ++i) {
+        end += utf8Count(cells_[i].text);
+    }
+    return {start, end};
+}
+
+std::string Buffer::markStatus() {
+    const auto [from, to] = markedRange();
+    if (from < 0) {
+        return {};
+    }
+    std::string phrase;
+    std::string reading;
+    if (!markedPhrase(phrase, reading)) {
+        return "自訂詞需為 2–8 個中文字";
+    }
+    for (const auto &entry : zhuyin_.userPhrases()) {
+        if (entry.phrase == phrase && entry.reading == reading) {
+            return "已有自訂詞「" + phrase + "」";
+        }
+    }
+    return "Enter 加入自訂詞「" + phrase + "」";
+}
+
+bool Buffer::markedPhrase(std::string &phrase, std::string &reading) const {
+    constexpr int kMinPhrase = 2; // McBopomofo's marking limits
+    constexpr int kMaxPhrase = 8;
+    const int from = std::min(markAnchor_, caretPos_);
+    const int to = std::max(markAnchor_, caretPos_);
+    if (markAnchor_ < 0 || to - from < kMinPhrase || to - from > kMaxPhrase) {
+        return false;
+    }
+    phrase.clear();
+    reading.clear();
+    for (int i = from; i < to; ++i) {
+        const Cell &cell = cells_[i];
+        const std::string symbols =
+            cell.chinese ? bopomofoForReading(cell.reading) : std::string{};
+        if (symbols.empty()) {
+            return false;
+        }
+        phrase += cell.text;
+        if (!reading.empty()) {
+            reading += ' ';
+        }
+        reading += symbols;
+    }
+    return true;
+}
+
+KeyResult Buffer::addMarkedPhrase() {
+    std::string phrase;
+    std::string reading;
+    const bool valid = markedPhrase(phrase, reading);
+    markAnchor_ = -1;
+    if (!valid) {
+        return {true, false, {}, true, false, "自訂詞需為 2–8 個中文字"};
+    }
+    const int added = zhuyin_.addUserPhrase(phrase, reading);
+    if (added < 0) {
+        return {true, false, {}, true, false, "無法加入自訂詞"};
+    }
+    // The run must be re-fed for the new phrase to take part in conversion.
+    runLoaded_ = false;
+    return {true, false, {}, true, false,
+            added > 0 ? "已加入自訂詞「" + phrase + "」"
+                      : "已有自訂詞「" + phrase + "」"};
 }
 
 KeyResult Buffer::openCandidatesAt(int cell, bool reinterpret) {

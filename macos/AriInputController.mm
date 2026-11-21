@@ -484,6 +484,15 @@ AriCandidateWindow *sharedCandidateWindow() {
     [marked addAttribute:NSUnderlineStyleAttributeName
                    value:@(NSUnderlineStyleSingle)
                    range:NSMakeRange(0, preeditString.length)];
+    // A span marked to become a custom phrase stands out with a thick line.
+    const auto [markFrom, markTo] = self.buffer.markedRange();
+    if (markFrom >= 0 && markTo > markFrom) {
+        const NSUInteger from = utf16OffsetForGrapheme(preedit, markFrom);
+        const NSUInteger to = utf16OffsetForGrapheme(preedit, markTo);
+        [marked addAttribute:NSUnderlineStyleAttributeName
+                       value:@(NSUnderlineStyleThick)
+                       range:NSMakeRange(from, to - from)];
+    }
     const NSUInteger caret =
         utf16OffsetForGrapheme(preedit, self.buffer.caretChar());
     [sender setMarkedText:marked
@@ -539,9 +548,13 @@ AriCandidateWindow *sharedCandidateWindow() {
         [items addObject:toNSString(candidate)];
     }
 
-    // Above the list: which character is being edited.
+    // Above the list: which character is being edited, or what Enter would do
+    // with a marked span.
     NSString *auxUp = @"";
-    if (editing) {
+    const std::string markStatus = self.buffer.markStatus();
+    if (!markStatus.empty()) {
+        auxUp = toNSString(markStatus);
+    } else if (editing) {
         const bool picking = self.buffer.isPicking();
         auxUp = editingPreview(
             preedit, picking ? self.buffer.selectionChar() : self.buffer.caretChar(),
@@ -828,6 +841,10 @@ AriCandidateWindow *sharedCandidateWindow() {
 
 - (int)ari_candidatePageCount {
     return self.buffer.candidatePageCount();
+}
+
+- (NSString *)ari_markStatus {
+    return toNSString(self.buffer.markStatus());
 }
 
 - (void)commitComposition:(id)sender {

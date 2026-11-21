@@ -14,6 +14,7 @@
 #import "AriInputController.h"
 
 #include "buffer.h"
+#include "zhuyin.h"
 #import "KeyMap.h"
 
 #include <map>
@@ -475,6 +476,24 @@ int main() {
             s.send(kVK_Return, @"\r");
             checkEq([NSString stringWithFormat:@"%d", s.caret()], @"-1",
                     "the caret returns to the end");
+        }
+
+        { // Shift+← marks characters for a custom phrase; Enter adds it and
+          // keeps composing rather than committing.
+            Session s;
+            s.type(@"su3cl4");
+            s.send(kVK_LeftArrow, @"", NSEventModifierFlagShift);
+            s.send(kVK_LeftArrow, @"", NSEventModifierFlagShift);
+            NSString *status = [s.controller ari_markStatus];
+            check([status hasPrefix:@"Enter 加入自訂詞「"],
+                  "Shift+← twice marks two characters to add");
+            NSString *phrase = s.client.markedText;
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.committed, @"", "Enter adds the phrase instead of committing");
+            checkEq(s.client.markedText, phrase, "and the composition stays as it was");
+            Zhuyin dictionary;
+            check(dictionary.forgetUserPhrase(phrase.UTF8String) > 0,
+                  "the phrase was added to the user dictionary");
         }
 
         { // Esc leaves the candidate window on the same character, so ↓ reopens

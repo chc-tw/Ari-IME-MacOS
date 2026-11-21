@@ -146,6 +146,14 @@ public:
     std::string takeCommit();
 
 private:
+    // Create and configure the libchewing context.
+    void openContext();
+    void reopenContext();
+    // Persist a change to the user dictionary and have every other context
+    // in the process pick it up.
+    void userDictionaryChanged();
+    unsigned seenDictionaryGeneration_ = 0;
+
     // Load Ari's explicit/imported phrase preferences once per context. The
     // cache is separate from libchewing's broad learned dictionary.
     bool loadUserPhraseCache();

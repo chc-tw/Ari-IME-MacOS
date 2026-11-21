@@ -3,6 +3,7 @@
 #include "zhuyin.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <functional>
 #include <fstream>
@@ -41,6 +42,10 @@ bool validPreferencePhrase(const std::string &phrase) {
 }
 
 using PhraseSet = std::unordered_set<std::string>;
+
+// Bumped whenever a context changes the user dictionary, so every other
+// context in the process knows to reopen and see the change.
+std::atomic<unsigned> dictionaryGeneration{0};
 
 bool readPreferredPhrases(PhraseSet &phrases) {
     const auto path = ari_ime::userPreferencePath();
@@ -220,6 +225,15 @@ private:
 } // namespace
 
 Zhuyin::Zhuyin() {
+    openContext();
+    setLearningAllowed(true);
+    // Load personal mappings before the context starts receiving user input.
+    // Older libchewing releases can disturb a live long pre-edit when their
+    // userphrase enumeration API is called mid-composition.
+    loadUserPhraseCache();
+}
+
+void Zhuyin::openContext() {
     std::error_code ec;
     const bool haveUserDataDir = ari_ime::ensureUserDataDir(ec);
 #ifdef ARI_IME_WASM
@@ -264,11 +278,12 @@ Zhuyin::Zhuyin() {
     if (!ctx_) {
         return;
     }
-    chewing_set_KBType(
-        ctx_, ari_ime::chewingKeyboardType(ari_ime::currentKeyboardLayout()));
-    // Tests run with a throwaway dictionary and should not try to persist learned
-    // data; production keeps auto-learning enabled by default.
-    setLearningAllowed(true);
+    seenDictionaryGeneration_ = dictionaryGeneration.load();
+    chewing_set_KBType(ctx_, ari_ime::chewingKeyboardType(layout_));
+    // libchewing's own learner promotes anything committed once to the top of
+    // its reading, permanently. Ari keeps it off and remembers picks in
+    // Buffer's short-term, decaying model instead, as McBopomofo does.
+    chewing_set_autoLearn(ctx_, AUTOLEARN_DISABLED);
 #if defined(CHEWING_VERSION_MAJOR) && defined(CHEWING_VERSION_MINOR) &&           \
     (CHEWING_VERSION_MAJOR > 0 || CHEWING_VERSION_MINOR >= 9)
     // Newer libchewing versions can rank candidates by learned frequency. Query
@@ -283,10 +298,25 @@ Zhuyin::Zhuyin() {
     chewing_set_escCleanAllBuf(ctx_, 1);
     chewing_set_candPerPage(ctx_, ari_ime::kCandPerPage);
     chewing_set_maxChiSymbolLen(ctx_, ari_ime::kMaxCompositionChars);
-    // Load personal mappings before the context starts receiving user input.
-    // Older libchewing releases can disturb a live long pre-edit when their
-    // userphrase enumeration API is called mid-composition.
-    loadUserPhraseCache();
+}
+
+void Zhuyin::reopenContext() {
+    // Deleting a context writes its user dictionary out synchronously; the new
+    // one reads it back, including what other contexts have since written.
+    if (ctx_) {
+        chewing_delete(ctx_);
+        ctx_ = nullptr;
+    }
+    openContext();
+}
+
+void Zhuyin::userDictionaryChanged() {
+    // libchewing saves on a background thread and an open context never
+    // re-reads the file unless it has changed something itself, so a phrase
+    // added here would stay invisible to every other input context. Write it
+    // out now and tell the others to reopen at their next reset.
+    reopenContext();
+    seenDictionaryGeneration_ = ++dictionaryGeneration;
 }
 
 Zhuyin::~Zhuyin() {
@@ -297,14 +327,16 @@ Zhuyin::~Zhuyin() {
 }
 
 void Zhuyin::setLearningAllowed(bool allowed) {
+    // Governs the explicit preference API below; libchewing's own learner
+    // stays off regardless (see openContext()).
     learningAllowed_ = allowed && ari_ime::autoLearnEnabled();
-    if (ctx_) {
-        chewing_set_autoLearn(ctx_, learningAllowed_ ? AUTOLEARN_ENABLED
-                                                    : AUTOLEARN_DISABLED);
-    }
 }
 
 void Zhuyin::resetAll() {
+    if (seenDictionaryGeneration_ != dictionaryGeneration.load()) {
+        reopenContext(); // another context changed the user dictionary
+        return;
+    }
     if (ctx_) {
         chewing_Reset(ctx_);
 #ifdef ARI_IME_LIBCHEWING_LEGACY_OUTPUT
@@ -556,6 +588,9 @@ int Zhuyin::forgetUserPhrase(const std::string &phrase) {
         }
         removed += count;
     }
+    if (removed > 0) {
+        userDictionaryChanged();
+    }
     bool preferred = false;
     std::unordered_set<std::string> updated;
     if (!updatePreferredPhrases(
@@ -615,6 +650,9 @@ int Zhuyin::addUserPhrase(const std::string &phrase,
             userPhraseTexts_ = std::move(updated);
             userPhraseMappings_.insert(phrase);
         }
+    }
+    if (result > 0) {
+        userDictionaryChanged();
     }
     return result;
 }

@@ -393,6 +393,98 @@ agentxu.6 → agent劉   | agentxu.6cj/4 → agent劉鍙   前綴不變
 
 **合併風險**：中。新增為主，但 `freezeAll()` 與 `handleEnter()` 各有一處小改動。
 
+
+---
+
+## D8 — 選字記憶改為小麥注音的 UserOverrideModel（取代永久學習）
+
+**檔案**：新增 `src/user_override.h`（header-only，免改各 CMake 清單）；
+`src/buffer.{h,cpp}`（`pickCandidate()`、`handleKey()`、`freezeRun()`、
+`moveAutoCommit()`、`handleBackspace()`、`learnFromCells()`、
+`forgetHighlightedCandidate()`，以及各個重設 live run 的地方）
+**類型**：**行為變更**（核心設計）
+**衝擊**：`test_buffer` 零額外變動；本機私有 `test_user_data.cpp` 的學習測試改寫為新語意；
+新增受版控的 `macos/test/test_user_override.mm`
+
+### 上游行為
+
+libchewing 的自動學習會把「第一次寫進使用者詞庫的詞」設成該讀音的最高頻率 +10
+（`editor/estimate.rs`），之後只增不減。Ari 在 Enter 時把整段重播給 libchewing，
+手動選過的字再多重播 3 次。結果：偶爾選一次的生僻字，從此永遠排第一。
+使用者 2 個多月累積了 269 個單字偏好。
+
+### 改動（對齊 McBopomofo）
+
+- `src/user_override.h` 移植 McBopomofo 的 `UserOverrideModel`：key 是
+  「前兩個詞 + 這個讀音的預設字」，分數 = 該選擇的比例 × e^(−Δt·ln2/半衰期)，
+  低於 2⁻²⁰ 歸零；500 筆 LRU；半衰期 1.5 小時（皆同 McBopomofo）。只在記憶體、
+  整個行程共用、不寫檔。
+- **記錄**：`pickCandidate()` 在選字前後各取一次 libchewing 的分詞結果
+  （`chewingWalk()`），交給 `observe()`。三種情況（同長替換、合成更長的詞、
+  拆成單字）照 McBopomofo 處理。key 的 head 用 `topCandidateAt()` 查詢字典本身的首選。
+- **套用**：`handleKey()` 結尾，若 live run 多了一個音節，`applyUserOverrideToRun()`
+  對最新的詞查詢建議，並以 `selectRunCandidate()` 在 libchewing 中選上。
+  被選上的範圍記在 `runOverrides_`，凍結進 `cells_` 時標為 `locked`，因此之後開
+  候選視窗重新組字（`relockRun`）不會被還原。
+- **不再永久學習**：libchewing 的 autoLearn 一律關閉（D9）；`learnFromCells()`
+  只保留讀音快取（供重新轉換），不再重播、不再寫 `preferences.tsv`。
+- `Shift+Delete` 忘記候選時，也會清掉這個記憶裡的對應建議。
+- `learningAllowed_`（敏感欄位、使用者設定）與 `ARI_IME_DISABLE_AUTOLEARN`
+  都會關閉記錄與套用；後者讓既有測試不受行程共用的記憶影響。
+  測試可用 `Buffer::clearUserOverrides()` 清空。
+
+### 與 McBopomofo 的差異
+
+- **選上即固定**：McBopomofo 套用建議時只把該節點的分數提到「與首選同分」，
+  之後的組字仍可能選別條路；libchewing 只有「選擇」這種硬性限制，所以 Ari
+  套用後就固定，後面的音節不能跨過它組詞。由於 key 已綁定上下文，又會衰減，
+  實際影響有限。
+- **沒有「罕用字不學」門檻**：McBopomofo 只在選中字的 log₁₀ 分數 > −8 時記錄。
+  換算到 libchewing（`ln(freq/58376702)`），門檻是詞頻 0.58；而 libchewing 計分時
+  詞頻最低算 1，所以照實移植永遠不會觸發，因此不實作。真正防止生僻字長期霸占的
+  是衰減、上下文 key 與 LRU。
+
+**合併風險**：中。多數是新增函式，但 live run 的每個重設點都多了一行
+`runOverrides_.clear()`；上游若新增重設 run 的路徑，需要一併補上。
+
+---
+
+## D9 — libchewing autoLearn 一律關閉；使用者詞庫變動時重開 context
+
+**檔案**：`src/zhuyin.{h,cpp}`（`openContext()`、`reopenContext()`、
+`userDictionaryChanged()`、`resetAll()`、`setLearningAllowed()`、`addUserPhrase()`、
+`forgetUserPhrase()`）
+**類型**：行為變更
+
+- 建構子拆成 `openContext()`，其中 `chewing_set_autoLearn(AUTOLEARN_DISABLED)`。
+  `setLearningAllowed()` 只管 Ari 的明確偏好 API。
+- libchewing 只在「該 context 自己有改動」的按鍵結束時才（在背景執行緒）寫檔，
+  其他已開著的 context 也不會重讀。autoLearn 關掉後，各 App 的 context 永遠不會再
+  有改動，於是一個 App 加的自訂詞，其他 App 永遠看不到。現在
+  `addUserPhrase()` / `forgetUserPhrase()` 成功後呼叫 `userDictionaryChanged()`：
+  重開自己的 context（銷毀時同步寫完檔），並遞增一個行程共用的版本號；其他
+  context 在下一次 `resetAll()`（buffer 為空）時發現版本變了就重開。
+
+**合併風險**：低到中。建構子結構改變，上游若改建構子需人工對照。
+
+---
+
+## D10 — 自訂詞：Shift+←/→ 標記、Enter 加入（McBopomofo 的加詞手勢）
+
+**檔案**：`src/buffer.{h,cpp}`（`handleCaret()`、`exitSelection()`，新增
+`markedRange()`、`markStatus()`、`markedPhrase()`、`addMarkedPhrase()`、
+`bopomofoForReading()`）；macOS 前端 `AriInputController.mm`、`AriPreferencesWindow.mm`
+**類型**：新增功能
+
+- caret 模式下 Shift+←/→ 從原游標位置開始標記；Enter 把 2–8 個中文字的標記
+  範圍以 `addUserPhrase()` 加入使用者詞庫（libchewing 會把它排在同讀音的第一位），
+  不送出組字。Esc 只取消標記。打字中直接按 Shift+← 也會進入 caret 模式並開始標記。
+- `markStatus()` 提供面板提示：「Enter 加入自訂詞「…」」、「已有自訂詞「…」」、
+  「自訂詞需為 2–8 個中文字」。
+- macOS：標記範圍畫粗底線，面板上方顯示提示；設定視窗的列表改稱「自訂詞」。
+
+**合併風險**：低。純新增，`handleCaret()` 開頭多一段分支。
+
 ---
 
 ## 合併記錄

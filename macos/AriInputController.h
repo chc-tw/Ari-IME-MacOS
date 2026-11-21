@@ -19,6 +19,7 @@
 - (int)ari_candidatePage;
 - (int)ari_caretChar;
 - (int)ari_candidatePageCount;
+- (NSString *)ari_markStatus;
 @end
 
 #endif // ARI_MACOS_INPUT_CONTROLLER_H

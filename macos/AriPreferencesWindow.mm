@@ -155,7 +155,7 @@ NSTextField *hint(NSString *text) {
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[ [NSGridCell emptyContentView], _autoLearn ],
         @[ [NSGridCell emptyContentView],
-           hint(@"關閉後個人字典不再變動。密碼欄位一律不學習。") ],
+           hint(@"選過的字會在相同上下文優先出現，約一天內淡出。密碼欄位一律不記。") ],
         @[ [NSGridCell emptyContentView], _showStatusLine ],
         @[ [NSGridCell emptyContentView], _spaceCandidateMode ],
         @[ [NSGridCell emptyContentView],
@@ -201,9 +201,9 @@ NSTextField *hint(NSString *text) {
         [NSButton buttonWithTitle:@"刪除選取的裁決"
                            target:self
                            action:@selector(forgetBoundaries:)],
-        hint(@"中文選字 — 學過的詞彙與讀音"),
+        hint(@"自訂詞 — 組字時 Shift+←/→ 標記，按 Enter 加入"),
         [self scrolling:_phrases],
-        [NSButton buttonWithTitle:@"刪除選取的詞彙"
+        [NSButton buttonWithTitle:@"刪除選取的自訂詞"
                            target:self
                            action:@selector(forgetPhrases:)],
     ]];

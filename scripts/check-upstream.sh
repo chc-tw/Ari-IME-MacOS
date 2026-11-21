@@ -24,6 +24,19 @@ divergent_symbols=(
     bodyIsPeelable       # D3
     handleChar           # D3
     setLearningAllowed   # D7
+    pickCandidate        # D8
+    freezeRun            # D8
+    moveAutoCommit       # D8
+    learnFromCells       # D8
+    handleBackspace      # D8
+    runReadings_         # D8 (every live-run reset must clear runOverrides_)
+    forgetHighlightedCandidate # D8
+    "Zhuyin::Zhuyin"     # D9
+    resetAll             # D9
+    addUserPhrase        # D9
+    forgetUserPhrase     # D9
+    handleCaret          # D10
+    exitSelection        # D10
 )
 
 if ! git remote get-url upstream >/dev/null 2>&1; then

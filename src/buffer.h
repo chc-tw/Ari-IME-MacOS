@@ -12,6 +12,7 @@
 #include <fcitx-utils/key.h>
 
 #include "layout.h"
+#include "user_override.h"
 #include "zhuyin.h"
 
 // Result of feeding one key into the state machine, applied by the engine.
@@ -132,6 +133,15 @@ public:
     };
     static std::vector<RememberedBoundary> rememberedBoundaries();
     static bool forgetBoundary(const std::string &keys);
+    // Empty the process-wide short-term memory of candidate picks.
+    static void clearUserOverrides();
+
+    // A span marked with Shift+←/→ while editing, as [from, to) character
+    // offsets, or {-1, -1}. Enter adds it as a custom phrase.
+    std::pair<int, int> markedRange() const;
+    // What Enter would do with the marked span, for the frontend to show; empty
+    // when nothing is marked.
+    std::string markStatus();
 
     bool isEditing() const { return selecting_; }
     bool isPicking() const { return selecting_ && candOpen_; }
@@ -277,12 +287,26 @@ private:
     KeyResult handleEnter();
     KeyResult handleBackspace();
     KeyResult handleDelete();
-    // On commit, learn every accepted Chinese run once, then give explicitly
-    // selected words/phrases extra passes plus a small surrounding-context pass.
-    // This keeps unchanged text as weak positive evidence while deliberate
-    // corrections adapt substantially faster.
+    // On commit, cache each Chinese character's reading for reconversion.
+    // Nothing is taught to libchewing: picks live in the short-term memory.
     void learnFromCells();
-    bool learnRange(int start, int end, int passes);
+
+    // --- Short-term pick memory (McBopomofo's UserOverrideModel) ---
+    bool userOverridesAllowed() const;
+    // chewing's current conversion as words; `readings` holds one canonical
+    // reading per character of the loaded run.
+    ari_ime::UserOverrideModel::Walk
+    chewingWalk(const std::vector<std::string> &readings);
+    std::string topCandidateAt(int offset, int length);
+    bool selectRunCandidate(int offset, const std::string &text);
+    void observeUserOverride(const ari_ime::UserOverrideModel::Walk &before,
+                             const std::vector<std::string> &readings,
+                             int pickedOffset);
+    // After a syllable converts, apply the remembered pick for the newest word.
+    void applyUserOverrideToRun();
+    // Mark the cells a remembered pick produced as locked once the run's first
+    // `count` characters have moved into cells_ at `firstCell`.
+    void pinRunCells(std::size_t firstCell, std::size_t count);
 
     // --- Freezing the live tail (run / English / syllable) into cells_ ---
     void freezeRun();        // live chewing run -> Chinese cells (with readings)
@@ -395,6 +419,10 @@ private:
     // cells (你 -> s u 3), for when the literal keys were what was wanted.
     KeyResult revertCellToEnglish();
     void exitSelection();
+    // The marked span as a custom phrase and its Bopomofo reading. False when
+    // it is not 2-8 Chinese characters.
+    bool markedPhrase(std::string &phrase, std::string &reading) const;
+    KeyResult addMarkedPhrase();
 
     bool forcedEnglish_ = false;
     bool fullWidthPunct_ = false;
@@ -414,6 +442,10 @@ private:
     // packaging knob) does not withhold it; only the field and the user's own
     // setting do.
     bool boundaryMemoryAllowed_ = true;
+    // Spans [start, end) of the live run that the short-term memory chose.
+    std::vector<std::pair<int, int>> runOverrides_;
+    // Where a Shift+←/→ mark started, as a caret position; -1 when none.
+    int markAnchor_ = -1;
     ari_ime::KeyboardLayout layout_ = ari_ime::KeyboardLayout::Default;
     Token token_ = Token::Chinese;
     std::vector<Cell> cells_;             // finalized pre-edit, before the live tail
