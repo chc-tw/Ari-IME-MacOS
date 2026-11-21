@@ -20,10 +20,10 @@ divergent_symbols=(
     pendingSyllable      # D1
     tryPeelEnglish       # D2
     tryPeelEnglishTone1  # D2
-    peelInto             # D2
     setUppercaseIsEnglish # D3
     bodyIsPeelable       # D3
     handleChar           # D3
+    setLearningAllowed   # D7
 )
 
 if ! git remote get-url upstream >/dev/null 2>&1; then

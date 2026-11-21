@@ -173,9 +173,39 @@ public:
         spaceCandidateMode_ = on;
         return true;
     }
+    // ←/→ inside the candidate window: step to the neighbouring character, or
+    // page through the focused character's candidates.
+    bool setCandidateArrowKeys(ari_ime::CandidateArrowKeys keys) {
+        if (candidateArrowKeys_ == keys) {
+            return false;
+        }
+        candidateArrowKeys_ = keys;
+        return true;
+    }
+    // ↑ on a literal character: fold it into a Chinese character, or replace
+    // just that key with its Bopomofo symbol.
+    bool setLiteralKeyReinterpret(ari_ime::LiteralKeyReinterpret how) {
+        if (literalKeyReinterpret_ == how) {
+            return false;
+        }
+        literalKeyReinterpret_ = how;
+        return true;
+    }
+    // Where the caret lands after a candidate is chosen.
+    bool setCaretAfterPick(ari_ime::CaretAfterPick where) {
+        if (caretAfterPick_ == where) {
+            return false;
+        }
+        caretAfterPick_ = where;
+        return true;
+    }
     bool setKeyboardLayout(ari_ime::KeyboardLayout layout);
     // The frontend disables learning for password and other sensitive fields.
-    void setLearningAllowed(bool allowed) { learningAllowed_ = allowed; }
+    void setLearningAllowed(bool allowed) {
+        learningAllowed_ = allowed && ari_ime::autoLearnEnabled();
+        zhuyin_.setLearningAllowed(learningAllowed_);
+        boundaryMemoryAllowed_ = allowed;
+    }
 
     // Forced pure-English mode (toggled by Ctrl+Space); lets the engine show the
     // current 中/英 mode hint.
@@ -225,16 +255,11 @@ private:
     void integrateSyllable(const std::string &body, const std::string &typed);
     // Abandon the current 注音 hypothesis WITHOUT committing: the in-progress
     // syllable plus `trailing` become the live English tail after the run.
-    KeyResult flipToEnglish(char trailing);
+    KeyResult flipToEnglish(char trailing, bool markInvalidPrefix = false);
     // While in an English token, a tone key may complete a trailing 注音
     // syllable (e.g. "acer" + "u/6" -> acer螢). Peel it off when the remaining
     // prefix is empty or a real English word, so English typing isn't hijacked.
     bool tryPeelEnglish(char tone, KeyResult &out);
-    // Freeze the live run plus `prefix` into cells_, then start a fresh Chinese
-    // run from `syllable` (which already carries its tone, or a trailing space
-    // for 一聲). Shared by the initial-led peel passes.
-    void peelInto(const std::string &prefix, const std::string &syllable,
-                  const std::string &typed);
     // Rewrite the token that was just frozen if its keys were adjudicated
     // before. Called from freezeAll(), so a remembered decision is applied when
     // the token is complete and never while it is still growing.
@@ -257,7 +282,7 @@ private:
     // This keeps unchanged text as weak positive evidence while deliberate
     // corrections adapt substantially faster.
     void learnFromCells();
-    void learnRange(int start, int end, int passes);
+    bool learnRange(int start, int end, int passes);
 
     // --- Freezing the live tail (run / English / syllable) into cells_ ---
     void freezeRun();        // live chewing run -> Chinese cells (with readings)
@@ -292,7 +317,10 @@ private:
     // (or the last character when the caret is at the end).
     // Picking mode (candOpen_ == true): the classic candidate window over one
     // cell; ↑↓ navigate, number keys pick, Esc returns to caret mode.
-    KeyResult enterSelection(const fcitx::Key &key); // freeze + enter caret mode
+    // Freeze + enter caret mode. Callers that are opening a known whole phrase
+    // (for example reconversion) may start at its first cell; normal navigation
+    // keeps the existing end-of-preedit behavior.
+    KeyResult enterSelection(const fcitx::Key &key, bool startAtBeginning = false);
     KeyResult handleSelecting(const fcitx::Key &key);
     KeyResult handleCaret(const fcitx::Key &key);    // caret mode dispatch
     KeyResult handlePicking(const fcitx::Key &key);  // candidate-window dispatch
@@ -327,6 +355,16 @@ private:
     KeyResult moveCaretByPhrase(int direction);
     std::vector<int> phraseBoundaries();
     KeyResult pickCandidate(int pageIndex); // pick a candidate on the current page
+    // Close the candidate window after a completed pick and stay in caret mode
+    // with the caret parked at cell index `caret` — the cell just after the text
+    // the pick rewrote. Correction is a mid-string operation, so by default the
+    // caret stays where the user was working instead of snapping back to the
+    // end; CaretAfterPick::EndOfText restores the append-at-end behavior.
+    void finishPickAt(int caret);
+    // Move `delta` candidate pages. `wrap` cycles past either end (what ←/→ do
+    // under CandidateArrowKeys::ChangePage, matching libchewing's own window
+    // and ↓/↑ here); PageUp/PageDown pass false and stop at the ends.
+    KeyResult changeCandidatePage(int delta, bool wrap);
     KeyResult forgetHighlightedCandidate();
     void rememberSelectionUndo();
     void clearSelectionUndo();
@@ -348,6 +386,11 @@ private:
     // open its candidates — recovering "catsu3" -> cat + 你 when the syllable's
     // 聲母 was wrongly absorbed into the English run.
     KeyResult reinterpretFromCell();
+    // ↑ under LiteralKeyReinterpret::BopomofoSymbol: replace the single literal
+    // 注音 key at `cell` with the symbol it stands for (1 -> ㄅ), as ordinary
+    // text. Deliberately does NOT resume composition — the symbol is a finished
+    // character and the next keystroke continues after it.
+    KeyResult showBopomofoForCell(int cell);
     // ↑ on a Chinese cell: explode it back into its raw 注音 keys as English
     // cells (你 -> s u 3), for when the literal keys were what was wanted.
     KeyResult revertCellToEnglish();
@@ -359,7 +402,18 @@ private:
         ari_ime::ChinesePunctuationShortcut::ControlShift;
     bool spaceCandidateMode_ = false;
     bool uppercaseIsEnglish_ = false;
+    ari_ime::CandidateArrowKeys candidateArrowKeys_ =
+        ari_ime::CandidateArrowKeys::MoveCursor;
+    ari_ime::CaretAfterPick caretAfterPick_ =
+        ari_ime::CaretAfterPick::NextCharacter;
+    ari_ime::LiteralKeyReinterpret literalKeyReinterpret_ =
+        ari_ime::LiteralKeyReinterpret::Syllable;
     bool learningAllowed_ = true;
+    // A remembered boundary answer is a decision the user made explicitly, not
+    // statistical learning, so the process-wide autolearn switch (a test and
+    // packaging knob) does not withhold it; only the field and the user's own
+    // setting do.
+    bool boundaryMemoryAllowed_ = true;
     ari_ime::KeyboardLayout layout_ = ari_ime::KeyboardLayout::Default;
     Token token_ = Token::Chinese;
     std::vector<Cell> cells_;             // finalized pre-edit, before the live tail
@@ -369,6 +423,16 @@ private:
     std::vector<std::string> runTyped_;    // keys as typed, parallel to runReadings_;
                                            // empty entries fall back to readings
     std::string englishBuf_;             // live English tail, after the chewing run
+    // A one-key leading ASCII fragment from a failed 注音 hypothesis. If the
+    // rest of the buffer later forms a complete Chinese syllable, that key may
+    // be discarded as an accidental prefix. Longer failed hypotheses are kept
+    // unless the duplicate-key path below can prove a one-key removal.
+    std::size_t invalidPrefixLength_ = 0;
+    // Length of the first failed raw hypothesis, including the key that broke
+    // it. When that failure was caused by a repeated key, one occurrence in
+    // this short prefix may be removed if the resulting body converts.
+    std::size_t invalidSequenceLength_ = 0;
+    char duplicateKey_ = 0;
     std::string syl_;                    // raw keys of the in-progress 注音 syllable
     bool selecting_ = false;             // editing mode active (caret or picking)
     bool candOpen_ = false;              // picking mode: candidate window is open

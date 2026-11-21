@@ -7,6 +7,9 @@ keys only become Chinese once they form a complete, toned 注音 syllable
 freely mix English and Chinese in any order (e.g. `acer螢幕`) and is only sent to
 the application when you press **Enter**.
 
+> 臺灣使用者可先看[快速上手指南](docs/quickstart-zh-TW.md)：安裝後輸入
+> `su3` 得到「你」，再試試在同一段文字中混打英文與注音。
+
 Built on [libchewing](https://github.com/chewing/libchewing) for conversion,
 phrasing and per-user learning.
 
@@ -21,14 +24,23 @@ phrasing and per-user learning.
   sequences and every supported layout.
 - **English-word friendly** — a tone peels the shortest trailing syllable, so
   brand names stay intact (`aceru/6` → `acer螢`).
+- **Typo-tolerant composition** — when a repeated key or an invalid leading
+  key breaks a 注音 hypothesis, Ari removes it only after the remaining keys
+  independently form a Chinese syllable (`HHK$G$` and `GHK$G$` → `測試`).
 - **Live contextual ranking** — as soon as a complete Chinese result is
   available, libchewing applies its surrounding-word model and learned habits
   to the inline result. Ari does not open a candidate panel automatically;
   press Down to enter normal candidate picking when you want alternatives.
 - **Candidate re-selection anywhere** — press ↓/←/→ to open a cursor that walks
   the whole pre-edit and re-pick any character or phrase; phrase recommendations
-  that contain the focused character remain available even at the end of a
-  word, and earlier picks stay pinned. Candidates can be picked by number key or
+  start at the focused character and may extend toward following text, while
+  earlier text is not pulled into the current lookup. Earlier picks stay pinned.
+  Picking a candidate leaves the caret on the character right after the text it
+  rewrote, so correcting something in the middle of a sentence keeps editing
+  there; press End (or Esc) to go back to appending, or set **Caret after
+  picking a candidate** to *Jump to the end* to always land at the tail. ←/→
+  step to the neighbouring character's candidates by default and can be set to
+  turn candidate pages. Candidates can be picked by number key or
   direct click/touch, and multi-page lists show their current page in the
   auxiliary line. The labeled `原始鍵 ...` candidate restores a converted
   character back to its raw keys. Literal punctuation cells use the same picker:
@@ -93,8 +105,11 @@ phrasing and per-user learning.
   libchewing's contextual scorer; Ari does not open a hidden candidate window on
   every completed syllable or force a static preference to the top.
   **AutoLearn** can be disabled in the addon's configuration when
-  the personal dictionary should remain unchanged.
-  Password and sensitive input fields never write learning data.
+  the personal dictionary should remain unchanged. The setting also controls
+  libchewing's internal learner during candidate selection. Learning replays
+  only train text that exactly matches the committed choice, and concurrent
+  input contexts preserve each other's preference updates. Password and
+  sensitive input fields never write learning data.
 - **Automatic offline context** — libchewing's local phrase model uses
   surrounding words to distinguish homophones such as `我的` and `跑得快`.
   Personal weights feed the same model automatically; there is no external AI,
@@ -115,7 +130,7 @@ phrasing and per-user learning.
 
 The WebAssembly package ships its generated `.js`, `.wasm` and dictionary data
 artifacts for direct npm use. See [`wasm/README.md`](wasm/README.md) for the
-Emscripten build inputs and the native/API smoke tests.
+Emscripten build inputs, browser demo and native/API smoke tests.
 
 ## Keys
 
@@ -125,13 +140,14 @@ Emscripten build inputs and the native/API smoke tests.
 | layout tone keys, space (一聲) | complete the pending syllable |
 | ↓ / ← / → | open candidate re-selection over the pre-edit |
 | Ctrl+Alt+R | reopen a selected short Chinese range for candidate correction (configurable) |
-| ↑ | open/reinterpret the current pre-edit cell |
+| ↑ | open/reinterpret the current pre-edit cell, or show a literal key's Bopomofo symbol (configurable) |
 | Tab / Shift+Tab (in candidates) | move candidate highlight forward / backward |
 | Home / End | jump to the beginning / end of the pre-edit |
 | Ctrl+Left / Ctrl+Right | move by libchewing phrase boundaries or English words |
 | Delete | delete the character right of the caret, or the focused candidate cell |
 | Shift+Delete (in candidates) | forget the highlighted personal learning record |
 | PageUp / PageDown | move between candidate pages |
+| ← / → (in candidates) | move to the neighbouring character's candidates, or turn candidate pages (configurable) |
 | number `1`–`9` | pick a candidate |
 | Backspace (in selection) | delete the focused character and leave selection |
 | Esc | clear pre-edit, or close selection/candidates first |
@@ -392,11 +408,42 @@ fcitx5-remote -s ari-ime
 fcitx5-remote -n   # should print: ari-ime
 ```
 
-Per-addon options (keyboard layout, Chinese-punctuation shortcut, Space
-candidate mode, full-width punctuation and AutoLearn) appear under the addon's
-config page.
+### Settings
+
+The addon's config page lists these options. Each label is deliberately short so
+the page fits inside the settings window; the details below are also attached to
+every option as a tooltip, which `fcitx5-config-qt` shows on hover (KDE's System
+Settings module does not render tooltips yet).
+
+| Option | Default | What it does |
+|--------|---------|--------------|
+| Keyboard layout | 大千 | Bopomofo key arrangement. Drives both Ari's key classification and libchewing's keyboard type. |
+| Always use full-width punctuation | off | Full-width Chinese punctuation without a modifier. Off keeps ordinary punctuation literal and reserves the Chinese form for the shortcut below. |
+| Chinese punctuation shortcut | Ctrl+Shift | Modifier that temporarily produces the Chinese form of a punctuation key. Pick another one if an application already uses it. `Alt+[` / `Alt+]` stay reserved for corner quotes. |
+| Space opens candidates | off | Space opens the candidate window after a complete syllable. Off keeps Ari's Space-as-一聲 and literal-space behavior. Enter commits either way. |
+| Left/Right in the candidate window | Move to the next character | What ←/→ do while candidates are open. **Move to the next character** walks to the neighbouring character's candidates; **Turn candidate pages** pages through the focused character's list, cycling at both ends like libchewing's own window. Whichever you don't pick stays reachable: PageUp/PageDown always page (stopping at the ends), and Esc returns to the caret where ←/→ always move. |
+| Up arrow on a literal character | Merge into a Chinese character | What ↑ does to a literal English or punctuation character. **Merge into a Chinese character** folds it together with the next few when they form a complete syllable (`catsu3` → `cat` + 你). **Show its Bopomofo symbol** replaces just that one key with the symbol it stands for (`1` → `ㄅ`) as ordinary text, the way ASUS's mixed input does — the symbol is a finished character, so the next key you type follows it. |
+| Caret after picking a candidate | Stay after the corrected text | Where the caret goes once a candidate is chosen. **Stay after the corrected text** keeps editing at the correction; **Jump to the end** returns to appending at the tail. |
+| Reconversion shortcut | Control+Alt+R | Re-opens a short selected Chinese range for candidate correction. Clear it to reserve no shortcut. |
+| Learn accepted choices locally | on | Adapts the personal dictionary to the Chinese you accept. Sensitive fields never learn regardless of this setting. |
+| Show composition status | off | Shows `中 · 大千 · 半形標點`-style status in the auxiliary line while composing. |
+| Show pending Bopomofo | off | Shows the symbols of the pending syllable near the cursor while typing. |
+| Full-width punctuation toggle | unset | Optional shortcut that turns full-width punctuation on and off. Empty by default so no application shortcut is reserved; a modifier is required. |
 
 ## Tests
+
+To compare candidate coverage across distributions or libchewing versions, run
+the bundled 大千 benchmark with an isolated temporary learning directory:
+
+```sh
+scripts/candidate-benchmark.sh /path/to/ari-ime-dict
+```
+
+The report includes the binary and libchewing version and checks whether each
+target character appears on the first candidate page at the initial cursor. It
+does not touch the active user dictionary. Add reproducible cases to
+[`docs/candidate-benchmark.tsv`](docs/candidate-benchmark.tsv); candidate order
+is reported for diagnosis and is not a cross-distribution release guarantee.
 
 ```sh
 ctest --test-dir build
@@ -435,6 +482,64 @@ Set `ARI_IME_CHECK_MODE=release`, `sanitize`, `coverage`, `fuzz`, or `package`
 to run just one part of the check. GitHub Actions uses the release, sanitizer,
 bounded-fuzz, and package modes as separate jobs in an Arch Linux container on
 pushes and pull requests.
+
+### Verifying on another distribution
+
+`scripts/check.sh` assumes an Arch-like host. To build and test this source tree
+on a Debian, Ubuntu, Arch or Fedora machine — useful because the fcitx5 headers
+it compiles against and the libchewing that ranks its candidates are whatever
+the distribution ships:
+
+```sh
+scripts/build-from-source.sh --deps
+```
+
+It prints a banner with the distribution, compiler, CMake, libchewing and fcitx5
+versions before building, so a failure is attributable to a specific dependency
+set; then it configures with `-DBUILD_TESTING=ON`, builds, stages an install
+into a throwaway prefix, and runs CTest. `--deps` installs the build
+dependencies for the detected distribution (needs sudo) and can be dropped on
+later runs.
+
+To install what you just built, the way the distribution expects:
+
+```sh
+scripts/build-from-source.sh --install
+```
+
+That builds the native package, installs it through `apt` or `pacman` (so it
+stays uninstallable and does not fight the package manager), then restarts
+Fcitx5 and reports which module the running daemon actually loaded. The restart
+matters: Fcitx5 `dlopen()`s the addon once at startup, and `fcitx5-remote -r`
+rereads configuration without swapping the library — so after an upgrade the
+daemon keeps running the previous build out of a file that has already been
+replaced. The script tells you which state you are in:
+
+```
+    Fcitx5 pid 146938
+    loaded: /usr/lib/fcitx5/ari-ime.so
+```
+
+A path ending in `(deleted)` means the daemon is still on the old build and
+needs `fcitx5 -r -d`. Pass `--no-restart` to leave a running Fcitx5 alone.
+
+If Ari IME is not in your input method group yet, add it once with
+`ari-ime-enable --make-default`.
+
+Add `--package` to build the distribution's own package instead — a `.deb` via
+`dpkg-buildpackage` on Debian and Ubuntu (whose `debian/rules` configures with
+`-DBUILD_TESTING=ON`, so debhelper runs CTest as part of the build), or a
+`.pkg.tar.zst` via `makepkg` on Arch. The Arch path builds from a copy of the
+tree rather than using the shipped `PKGBUILD` directly, because that one
+downloads the released tarball from GitHub and uses `$startdir/src` — this
+project's actual source directory — as its build directory.
+
+Copy the tree to the target machine first; the script builds what is on disk,
+not a release tarball:
+
+```sh
+rsync -a --exclude build --exclude '.git' ./ user@host:ari-ime/
+```
 
 For memory/undefined-behavior checks:
 
@@ -539,14 +644,20 @@ ari-ime-dict backup
 
 Imports are merges, are idempotent, and create a timestamped backup before any
 existing libchewing data is changed. The portable text file contains a phrase
-and libchewing's canonical Unicode Bopomofo reading separated by a tab; use a
-reading such as `ㄋㄧˇ`, not layout-specific keys such as `su3`. The portable
+and libchewing's canonical Unicode Bopomofo reading separated by a tab, with
+one space between syllables (for example `妳好<TAB>ㄋㄧˇ ㄏㄠˇ`); use Bopomofo,
+not layout-specific keys such as `su3`. The portable
 format transfers personal phrase mappings, while exact frequency state can
 still vary with the installed libchewing version; `backup` preserves the raw
 files for same-engine recovery. `candidates KEYS` prints the current engine
 result and candidate page for a raw 大千 key sequence such as `su3` or `hk4g4`,
 which makes candidate-order reports reproducible without changing the active
 Fcitx5 session.
+
+To migrate a VChewing/XiaoMai Bopomofo TSV dictionary, use the installed
+`ari-ime-convert-vchewing-dictionary` command to validate and convert it before
+merging it with `ari-ime-dict import`. Pinyin readings are reported as
+unsupported instead of being guessed, and source weights are not transferred.
 
 The script backs up the current `userdict.dat` to a timestamped `.bak.*` file
 and removes the active learned dictionary so Ari IME starts relearning from a

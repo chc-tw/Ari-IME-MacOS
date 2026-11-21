@@ -1,5 +1,77 @@
 # Changelog
 
+## Unreleased
+
+## 2.8.0 - 2026-10-20
+
+- Add a Traditional Chinese quick-start guide, a local WebAssembly demo, and an
+  isolated candidate-coverage benchmark.
+- Add a VChewing/XiaoMai Bopomofo dictionary converter and make Ari's portable
+  dictionary format round-trip space-separated syllables, including fourth-tone
+  readings.
+
+## 2.7.2 - 2026-10-08
+
+- Keep single-character learning in libchewing without promoting it as an Ari
+  phrase preference, so choices such as 「值」 do not override contextual
+  conversion of words such as 「智慧」.
+- Preserve multi-character phrase preferences and add regression coverage for
+  contextual conversion and the Shift+Delete candidate-forgetting path.
+- Rebuild the WebAssembly runtime from the same input core and update
+  `@ari-ime/wasm` to 2.7.2.
+
+## 2.7.1 - 2026-10-08
+
+- Treat a leading punctuation-looking final key such as `/` as a literal
+  separator when the following keys independently form a Chinese syllable.
+  `/su3` now produces `/你`, including after English or Chinese text.
+- Keep symbol keys inside valid syllables (such as `u/6`) and preserve
+  punctuation-heavy technical text such as URLs.
+- Rebuild the WebAssembly runtime from the same input core and update
+  `@ari-ime/wasm` to 2.7.1.
+- Run the published buffer regression test in clean-checkout release and
+  sanitizer CI jobs; include a versioned WebAssembly archive in GitHub Releases.
+
+## 2.7.0 - 2026-10-02
+
+- Apply the AutoLearn setting and sensitive-field policy to libchewing's
+  internal learner, including candidate selection before Enter.
+- Check that a learning replay reconstructs the exact committed text before
+  training; persist explicit preferences only after a successful replay.
+- Lock and reload the preference sidecar before each update so separate input
+  contexts and the dictionary tool do not overwrite each other's choices.
+- Preserve the typed order of out-of-order Bopomofo keys when reverting to
+  raw input (for example, `240` remains `240`).
+
+## 2.6.4 - 2026-09-28
+
+- Keep the pre-edit caret where the correction happened: after picking a
+  candidate the caret now sits on the character right after the text that was
+  rewritten, instead of snapping to the end of the pre-edit. Typing continues
+  at that point; End or Esc still returns to appending at the end. The new
+  `CaretAfterPick` setting restores the old jump-to-the-end behavior.
+- Add `LiteralKeyReinterpret`, restoring Ari's original ASUS-style gesture as an
+  option: with it set to `BopomofoSymbol`, ↑ on a literal 注音 key replaces just
+  that key with the symbol it stands for (`1` → `ㄅ`) as ordinary text, tone keys
+  included (`3` → `ˇ`). The symbol is a finished character, so the next keystroke
+  follows it rather than continuing the syllable. The default `Syllable` keeps
+  today's behavior of folding the key together with the next few into one Chinese
+  character.
+- Add `CandidateArrowKeys`, choosing what ←/→ do while the candidate window is
+  open: move to the neighbouring character's candidates (the default, unchanged)
+  or turn pages within the focused character's list, cycling at both ends the
+  way libchewing's own candidate window does. Whichever is not chosen stays
+  reachable — PageUp/PageDown always page (still stopping at the ends), and
+  Escape returns to the caret where ←/→ always move.
+- Shorten every configuration label and move the full explanation into a
+  tooltip. The long descriptions were rendered as unwrapped single-line labels
+  by KDE's System Settings module, stretching the Ari IME page past the right
+  edge of the window. Setting keys and defaults are unchanged, so existing
+  `conf/ari-ime.conf` files keep working. The full text of each option is also
+  documented in README.md, since that module does not render tooltips.
+
+Contributed by @leafpmpmp (Morikon).
+
 ## 2.6.2 - 2026-08-25
 
 Bug-fix release restoring the test suite and fixing two candidate-window

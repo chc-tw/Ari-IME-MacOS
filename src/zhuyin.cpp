@@ -4,12 +4,21 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#ifndef ARI_IME_WASM
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+#endif
 
 #include <chewing.h>
 
@@ -22,20 +31,31 @@ namespace {
 constexpr std::string_view kPreferenceHeader =
     "# Ari IME preferred phrases v1";
 
-bool validPreferencePhrase(std::string_view phrase) {
-    return !phrase.empty() && phrase.find('\t') == std::string_view::npos &&
-           phrase.find('\n') == std::string_view::npos &&
-           phrase.find('\r') == std::string_view::npos;
+// A single character has no context and can override libchewing's conversion
+// of every word that contains its reading.
+bool validPreferencePhrase(const std::string &phrase) {
+    return !phrase.empty() && phrase.find('\t') == std::string::npos &&
+           phrase.find('\n') == std::string::npos &&
+           phrase.find('\r') == std::string::npos &&
+           ari_ime::unicode::graphemeCount(phrase) >= 2;
 }
 
-std::unordered_set<std::string> readPreferredPhrases() {
-    std::unordered_set<std::string> phrases;
+using PhraseSet = std::unordered_set<std::string>;
+
+bool readPreferredPhrases(PhraseSet &phrases) {
     const auto path = ari_ime::userPreferencePath();
     if (path.empty()) {
-        return phrases;
+        return false;
     }
 
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec)) {
+        return !ec;
+    }
     std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return false;
+    }
     std::string line;
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') {
@@ -48,7 +68,7 @@ std::unordered_set<std::string> readPreferredPhrases() {
             phrases.insert(line);
         }
     }
-    return phrases;
+    return !in.bad();
 }
 
 bool writePreferredPhrases(
@@ -103,6 +123,55 @@ bool writePreferredPhrases(
         return false;
     }
     return true;
+}
+
+// A context's cache can be older than another input context or ari-ime-dict.
+// Serialize read-modify-write across threads and processes, then reload from
+// disk under the lock so one addition cannot erase another.
+std::mutex preferenceMutex;
+
+bool updatePreferredPhrases(const std::function<void(PhraseSet &)> &change,
+                            PhraseSet &updated) {
+    std::lock_guard<std::mutex> guard(preferenceMutex);
+    const auto dir = ari_ime::userDataDir();
+    if (dir.empty()) {
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (ec) {
+        return false;
+    }
+#ifndef ARI_IME_WASM
+    const auto lockPath = dir / "preferences.tsv.lock";
+    const int fd = open(lockPath.c_str(), O_CREAT | O_RDWR, 0600);
+    if (fd < 0) {
+        return false;
+    }
+    int lockResult;
+    do {
+        lockResult = flock(fd, LOCK_EX);
+    } while (lockResult != 0 && errno == EINTR);
+    if (lockResult != 0) {
+        close(fd);
+        return false;
+    }
+#endif
+    PhraseSet current;
+    bool ok = readPreferredPhrases(current);
+    if (ok) {
+        PhraseSet previous = current;
+        change(current);
+        ok = current == previous || writePreferredPhrases(current);
+        if (ok) {
+            updated = std::move(current);
+        }
+    }
+#ifndef ARI_IME_WASM
+    flock(fd, LOCK_UN);
+    close(fd);
+#endif
+    return ok;
 }
 
 // libchewing logs an error for a missing user dictionary even though an empty
@@ -199,9 +268,7 @@ Zhuyin::Zhuyin() {
         ctx_, ari_ime::chewingKeyboardType(ari_ime::currentKeyboardLayout()));
     // Tests run with a throwaway dictionary and should not try to persist learned
     // data; production keeps auto-learning enabled by default.
-    chewing_set_autoLearn(
-        ctx_, ari_ime::autoLearnEnabled() ? AUTOLEARN_ENABLED
-                                          : AUTOLEARN_DISABLED);
+    setLearningAllowed(true);
 #if defined(CHEWING_VERSION_MAJOR) && defined(CHEWING_VERSION_MINOR) &&           \
     (CHEWING_VERSION_MAJOR > 0 || CHEWING_VERSION_MINOR >= 9)
     // Newer libchewing versions can rank candidates by learned frequency. Query
@@ -226,6 +293,14 @@ Zhuyin::~Zhuyin() {
     if (ctx_) {
         chewing_delete(ctx_);
         ctx_ = nullptr;
+    }
+}
+
+void Zhuyin::setLearningAllowed(bool allowed) {
+    learningAllowed_ = allowed && ari_ime::autoLearnEnabled();
+    if (ctx_) {
+        chewing_set_autoLearn(ctx_, learningAllowed_ ? AUTOLEARN_ENABLED
+                                                    : AUTOLEARN_DISABLED);
     }
 }
 
@@ -481,16 +556,15 @@ int Zhuyin::forgetUserPhrase(const std::string &phrase) {
         }
         removed += count;
     }
-    const bool preferred = userPhraseTexts_.erase(phrase) > 0;
-    if (preferred && !writePreferredPhrases(userPhraseTexts_)) {
-        // Keep this context consistent with the on-disk preference list if the
-        // filesystem is temporarily unwritable. The libchewing entry has
-        // already been removed, but a later context can still recover the
-        // preference rather than silently losing it.
-        userPhraseTexts_.insert(phrase);
-        userPhraseMappings_.insert(phrase);
+    bool preferred = false;
+    std::unordered_set<std::string> updated;
+    if (!updatePreferredPhrases(
+            [&](auto &phrases) { preferred = phrases.erase(phrase) > 0; },
+            updated)) {
         return -1;
     }
+    userPhraseTexts_ = std::move(updated);
+    userPhraseCacheLoaded_ = true;
     userPhraseMappings_.erase(phrase);
     // The Ari sidecar is itself a personal preference. Count its removal even
     // when an older libchewing dictionary has no matching reading to remove.
@@ -524,44 +598,39 @@ int Zhuyin::addUserPhrase(const std::string &phrase,
     if (!ctx_ || phrase.empty() || reading.empty()) {
         return -1;
     }
+    // libchewing's userphrase API requires a space between syllables. Ari's
+    // portable dictionary uses that same representation for lossless export.
     const int result =
         chewing_userphrase_add(ctx_, phrase.c_str(), reading.c_str());
     const bool exists =
         chewing_userphrase_lookup(ctx_, phrase.c_str(), reading.c_str()) == 1;
-    if (result > 0 || exists) {
+    if ((result > 0 || exists) && validPreferencePhrase(phrase)) {
         userPhraseCacheLoaded_ = true;
-        const bool wasPresent = userPhraseTexts_.find(phrase) !=
-                                userPhraseTexts_.end();
-        userPhraseTexts_.insert(phrase);
-        userPhraseMappings_.insert(phrase);
         // This sidecar records deliberate selected/imported preferences only
         // for Ari's portable bookkeeping. The libchewing user dictionary also
         // contains ordinary learned frequencies and remains the live scorer.
-        if (!writePreferredPhrases(userPhraseTexts_) && !wasPresent) {
-            // Keep a pre-existing marker if the filesystem is temporarily
-            // unwritable; a newly added marker must not look durable in this
-            // context when it could not be persisted.
-            userPhraseTexts_.erase(phrase);
+        std::unordered_set<std::string> updated;
+        if (updatePreferredPhrases(
+                [&](auto &phrases) { phrases.insert(phrase); }, updated)) {
+            userPhraseTexts_ = std::move(updated);
+            userPhraseMappings_.insert(phrase);
         }
     }
     return result;
 }
 
 bool Zhuyin::rememberPreferredPhrase(const std::string &phrase) {
-    if (!ctx_ || !ari_ime::autoLearnEnabled() ||
+    if (!ctx_ || !learningAllowed_ ||
         !validPreferencePhrase(phrase)) {
         return false;
     }
-    loadUserPhraseCache();
-    if (userPhraseTexts_.find(phrase) != userPhraseTexts_.end()) {
-        userPhraseMappings_.insert(phrase);
-        return true;
-    }
-    userPhraseTexts_.insert(phrase);
-    if (!writePreferredPhrases(userPhraseTexts_)) {
-        userPhraseTexts_.erase(phrase);
+    std::unordered_set<std::string> updated;
+    if (!updatePreferredPhrases(
+            [&](auto &phrases) { phrases.insert(phrase); }, updated)) {
         return false;
     }
+    userPhraseTexts_ = std::move(updated);
+    userPhraseCacheLoaded_ = true;
     userPhraseMappings_.insert(phrase);
     return true;
 }
@@ -575,7 +644,7 @@ bool Zhuyin::loadUserPhraseCache() {
     // APIs expose ordinary frequency learning and explicit user phrases as the
     // same entries; importing that broad set is unnecessary and can disturb a
     // long active window. Ari's own sidecar is deliberately unambiguous.
-    userPhraseTexts_ = readPreferredPhrases();
+    readPreferredPhrases(userPhraseTexts_);
 #ifdef ARI_IME_LEGACY_PREFERENCE_PROMOTION
     // The sidecar records which phrases were deliberately chosen, while the
     // libchewing dictionary confirms that the corresponding mapping actually

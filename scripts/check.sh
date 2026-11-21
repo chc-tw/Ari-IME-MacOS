@@ -19,8 +19,12 @@ run() {
 }
 
 local_tests_available() {
-    [[ -f test/test_buffer.cpp &&
-       -f test/test_layout.cpp &&
+    [[ -f test/test_buffer.cpp ]]
+}
+
+full_local_tests_available() {
+    local_tests_available &&
+    [[ -f test/test_layout.cpp &&
        -f test/test_user_data.cpp &&
        -f test/test_enable_input_method.sh &&
        -f test/test_dict_tool.sh ]]
@@ -80,11 +84,8 @@ check_versions() {
             "$cmake_version" "$pkgbuild_version" "$srcinfo_version" >&2
         exit 1
     fi
-    if [[ "$cmake_version" != "$wasm_version" ]]; then
-        printf 'Version mismatch: CMake=%s wasm/package.json=%s\n' \
-            "$cmake_version" "$wasm_version" >&2
-        exit 1
-    fi
+    # WASM has a separately built runtime. Do not advance its package version
+    # until the checked-in binary has been rebuilt from this source revision.
     # The Debian packaging is optional; only enforce it when present.
     if [[ -n "$debian_version" && "$cmake_version" != "$debian_version" ]]; then
         printf 'Version mismatch: CMake=%s debian/changelog=%s\n' \
@@ -206,11 +207,13 @@ release_checks() {
     run test -x "$install_prefix/bin/ari-ime-enable"
     run test -x "$install_prefix/bin/ari-ime-reset-data"
     run test -x "$install_prefix/bin/ari-ime-dict"
+    run test -x "$install_prefix/bin/ari-ime-convert-vchewing-dictionary"
     run bash -n PKGBUILD
     run bash -n scripts/enable-input-method.sh
     run bash -n scripts/install-ubuntu.sh
     run bash -n scripts/install-local.sh
     run bash -n scripts/reset-user-data.sh
+    run bash -n scripts/build-from-source.sh
     if [[ -f test/test_dict_tool.sh ]]; then
         run bash -n test/test_dict_tool.sh
     fi
@@ -280,7 +283,7 @@ fuzz_checks() {
 }
 
 coverage_checks() {
-    if ! local_tests_available; then
+    if ! full_local_tests_available; then
         printf 'Skipping coverage checks: maintainer-only test sources are absent\n'
         return
     fi

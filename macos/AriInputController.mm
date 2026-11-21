@@ -223,6 +223,10 @@ AriCandidateWindow *sharedCandidateWindow() {
     }
     self.buffer.setChinesePunctuationShortcut(preferences.punctuationShortcut);
     self.buffer.setSpaceCandidateMode(preferences.spaceCandidateMode);
+    // Picking returns the caret to the end; ⌘Return (below) is the gesture
+    // that keeps it beside the change, so the core's mid-line default would
+    // take that choice away from plain Return.
+    self.buffer.setCaretAfterPick(ari_ime::CaretAfterPick::EndOfText);
 
     // macOS reports secure input globally rather than per field, so Ari takes
     // the conservative reading: while any application has secure input on,

@@ -73,10 +73,15 @@ int main() {
         checkBoundary("agentxu.6", "agent", 1, "agent + ㄌㄧㄡˊ keeps agent whole");
         // Any literal character had the same effect, punctuation included.
         checkBoundary("?vu;4", "?", 1, "? + ㄒㄧㄤˋ keeps the ㄒ");
-        checkBoundary("avu;4", "a", 1, "a + ㄒㄧㄤˋ keeps the ㄒ");
+        // A lone letter that was itself a failed 注音 key ("a" is ㄇ, and ㄇㄒ
+        // is invalid) is upstream's typo correction since 2.6.3: the key is
+        // dropped once the rest converts, rather than kept as English.
+        checkBoundary("avu;4", "", 1, "a mistyped ㄇ before ㄒㄧㄤˋ is dropped");
         // Space is 一聲, and had no general peel at all: nothing converted.
         checkBoundary("shiftru8_", "shift", 1, "shift + ㄐㄧㄚ via Space");
-        checkBoundary("c8_c8_cc8_", "", 4, "哈哈 + c + 哈 via Space");
+        // A doubled key is upstream's other typo correction: "cc8" + Space
+        // reads as one 哈, not c + 哈.
+        checkBoundary("c8_c8_cc8_", "", 3, "哈哈 + doubled c + 哈 via Space");
 
         // --- What the shortest-peel rule protects, and must keep -----------
         // "ru/6" is initial-led but ㄐㄩㄥˊ is not a character, so this falls

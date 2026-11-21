@@ -45,10 +45,22 @@ macOS 前端在輔助行顯示該音節的讀音（ㄏㄨㄢ），需要知道�
 
 ## D2 — 剝離英文尾端音節時，優先取「以聲母開頭」的切法
 
-**檔案**：`src/buffer.cpp`（`tryPeelEnglish`、`tryPeelEnglishTone1`）、
-`src/buffer.h`（新增私有 `peelInto()`）
+**檔案**：`src/buffer.cpp`（`tryPeelEnglish`、`tryPeelEnglishTone1`）
 **類型**：**行為變更**
-**衝擊**：`test_buffer` 19891 checks 中 **1 個預期值改變**（見下）
+**衝擊**：`test_buffer` 20065 checks 中 **1 個預期值改變**（見下）
+
+> **2026-11-21 合併上游 2.8.0 時重新套用。** 上游 2.6.3 把這兩個函式改寫成
+> `commit` / `tryBody` / `tryCandidate` lambda，並新增「打錯字修正」（重複鍵、
+> 開頭單一無效鍵）。本分歧改為建立在上游新結構上：
+>
+> - 原本的私有 `peelInto()` 已刪除——上游的 `commit` lambda 做同一件事，且會
+>   重設上游新增的 `invalidPrefixLength_` 等欄位，`runTyped_` 也同樣記錄實際鍵序。
+> - 「以聲母開頭」一輪寫成 `zhuyinSlot(buf[k]) == 0 && tryCandidate(k, false)`。
+>   有聲調鍵時放在上游的最短規則**之前**；Space（一聲）時放在最後當備援。
+> - 順序：上游的打錯字修正 → 以聲母開頭（D2）→ 上游最短 → 上游 symbol-led。
+>   打錯字修正排在最前，因此 `avu;4` 的 `a`（ㄇ，與 ㄒ 不相容）會被**當成打錯字
+>   刪除**，不再保留成英文；`cc8`+Space 的重複 `c` 也一樣。這是上游刻意的行為，
+>   `macos/test/test_mixed_input.mm` 的這兩個預期已改為上游的結果。
 
 ### 上游行為
 
@@ -123,6 +135,9 @@ FAIL catsu3 keeps cats and peels one Chinese syllable
 **類型**：新增設定項，**預設關閉＝維持上游行為**
 **衝擊**：`test_buffer` 零額外變動（上游測試不會打開此選項）
 
+> **2026-11-21**：上游改寫剝離函式後，`bodyIsPeelable()` 檢查移到兩個
+> `tryBody` lambda 內，因此打錯字修正產生的 body 也同樣受大寫規則約束。
+
 ### 上游行為
 
 鍵盤配列表折疊大小寫，`zhuyinSlot('S') == zhuyinSlot('s')`，因此 `SU3` 與
@@ -181,6 +196,20 @@ FAIL catsu3 keeps cats and peels one Chinese syllable
 | `c8`+Space（一聲）| `c8` ❌ | `c8 ` ✅ |
 | `ru8`+Space（一聲）| `ru8` ❌ | `ru8 ` ✅ |
 | `cj06`（二聲）| `cj06` | `cj06` |
+
+### 上游 2.6.3 新增測試的預期衝突（2026-11-21）
+
+上游 2.6.3 加了「原始鍵還原保留大寫」的測試：輸入 Shift+I 再按 Space（一聲）
+→ 喔，期望候選為 `原始鍵 I`、還原結果為 `I`。依本分歧，一聲的 Space 會一起
+還原，因此實際是 `原始鍵 I ` 與 `I `：
+
+```
+FAIL raw-key recovery keeps uppercase input state
+FAIL raw-key recovery restores the originally typed uppercase key got="喔" want="I"
+```
+
+大寫保留本身是正確的（上游的修正已生效），差別只在結尾的一聲空白。依本文件的
+慣例，**上游測試檔維持原樣**，這兩個失敗列為已知差異。
 
 **合併風險**：低。兩處小改動，皆在既有函式內。
 
@@ -316,7 +345,13 @@ static bool forgetBoundary(const std::string &keys);
 
 儲存於 `<資料目錄>/boundaries.tsv`，格式與既有的 `preferences.tsv` 一致
 （表頭 + TAB 分隔 + 原子 rename）。含 TAB/換行的內容一律拒絕。
-`learningAllowed_` 為假（密碼欄位、關閉學習）時不寫入。
+`boundaryMemoryAllowed_` 為假（密碼欄位、使用者關閉學習）時不寫入。
+
+> **2026-11-21**：原本以 `learningAllowed_` 判斷。上游 2.7.0 讓
+> `setLearningAllowed()` 同時受行程層級的 `ARI_IME_DISABLE_AUTOLEARN` 控制（測試
+> 與打包用的開關），這會連帶關掉邊界記憶。邊界裁決是使用者**明確做出的決定**，
+> 不是統計式學習，因此改用獨立的 `boundaryMemoryAllowed_`：只看欄位與使用者
+> 設定，不看該環境變數。改動僅在 `setLearningAllowed()` 多記一個值。
 
 ### 既有函式的兩處改動
 
@@ -352,7 +387,33 @@ agentxu.6 → agent劉   | agentxu.6cj/4 → agent劉鍙   前綴不變
 現在改為在音節轉換的當下套用（`handleKey()` 末尾的
 `applyRememberedBoundaryToRun()`），文字不再在使用者眼前變動。
 
-`peelInto()` 因此必須記錄**實際按下的鍵序**（`runTyped_`），記憶是以使用者按了
-什麼為鍵，而非正規化後的形式。
+剝離路徑因此必須記錄**實際按下的鍵序**（`runTyped_`），記憶是以使用者按了
+什麼為鍵，而非正規化後的形式。（原本在 `peelInto()`；合併上游 2.8.0 後由上游的
+`commit` lambda 負責，行為相同。）
 
 **合併風險**：中。新增為主，但 `freezeAll()` 與 `handleEnter()` 各有一處小改動。
+
+---
+
+## 合併記錄
+
+### 2026-11-21 — 上游 2.6.3 → 2.8.0（`43718d1`）
+
+- **衝突**：只在 `src/buffer.{h,cpp}`：剝離函式被上游改寫（D2/D3/D7 依上文重新套用），
+  以及 `buffer.h` 的新成員（並存）。
+- **非核心配套**：
+  - `compat/include/fcitx-utils/keysym.h` 補上上游新測試用到的
+    `FcitxKey_dollar`/`G`/`H`/`K`/`Shift_L`/`Shift_R`/`Control_L`。
+  - 上游 2.6.4 新增 `CaretAfterPick`，預設為「選完停在下一個字」。macOS 前端
+    原本是 Return 回到結尾、⌘Return 留在原處（以 Left 模擬），因此
+    `AriInputController` 明確設為 `EndOfText` 以保留原行為。上游另外兩個新設定
+    （`CandidateArrowKeys`、`LiteralKeyReinterpret`）macOS 沿用預設值，尚未放進設定視窗。
+  - 上游 2.7.2 起單字不再寫入 `preferences.tsv`。本機私有的 `test_user_data.cpp`、
+    `test_dict_tool.sh` 依此調整預期。
+- **未合併**：`f673839`（授權改為 KYL Noncommercial License 1.0）。
+  這是授權決定，不是技術決定，待擁有者決定。
+- **合併後測試**：除下列已知項目外全部通過——
+  `test_buffer`：`catsu3`（D2）、兩個大寫原始鍵（D4）；
+  `test_user_data`：`forgotten explicit preference stays forgotten after restart`
+  （合併前就失敗）。
+
