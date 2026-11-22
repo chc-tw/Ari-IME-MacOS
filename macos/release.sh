@@ -108,7 +108,8 @@ Ari IME ${version} 的 macOS 版（第 ${build_number} 版）。
 這個 App 沒有 Apple Developer ID 簽名，直接打開會被 macOS 擋下；安裝腳本會清除
 下載檔的隔離標記，讓 macOS 執行它。不放心的話，可以檢查原始碼或自己編譯。
 
-更新時重新執行 \`install.sh\` 即可，自訂詞與設定會保留。
+更新時重新執行 \`install.sh\` 即可，自訂詞與設定會保留。如果更新後只打得出英文，
+先切到別的輸入法再切回 Ari IME；還是不行就登出再登入。
 
 SHA-256：\`${sha}\`
 
