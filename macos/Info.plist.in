@@ -69,6 +69,8 @@
                 <string>@ARI_BUNDLE_ID@.Zhuyin</string>
                 <key>TISIntendedLanguage</key>
                 <string>zh-Hant</string>
+                <key>TISIconIsTemplate</key>
+                <true/>
                 <key>tsInputModeAlternateMenuIconFileKey</key>
                 <string>ari.tiff</string>
                 <key>tsInputModeCharacterRepertoireKey</key>

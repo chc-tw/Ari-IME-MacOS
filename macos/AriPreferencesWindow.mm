@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kaiyasi
 #import "AriPreferencesWindow.h"
 
+#include <algorithm>
 #include "AriPreferences.h"
 #include "buffer.h"
 #include "layout.h"
@@ -235,7 +236,16 @@ NSTextField *hint(NSString *text) {
     [_phraseRows removeAllObjects];
     {
         Zhuyin dictionary;
-        for (const auto &phrase : dictionary.userPhrases()) {
+        // libchewing lists phrases by its internal syllable code, which puts
+        // syllables without an initial (ㄧ, ㄨ, ㄚ…) before ㄅ. Sort by reading
+        // instead: the Bopomofo block is already in ㄅㄆㄇㄈ order.
+        auto phrases = dictionary.userPhrases();
+        std::sort(phrases.begin(), phrases.end(),
+                  [](const auto &a, const auto &b) {
+                      return a.reading != b.reading ? a.reading < b.reading
+                                                    : a.phrase < b.phrase;
+                  });
+        for (const auto &phrase : phrases) {
             AriMemoryRow *row = [[AriMemoryRow alloc] init];
             row.subject = @(phrase.phrase.c_str());
             row.outcome = @(phrase.reading.c_str());
