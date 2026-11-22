@@ -17,7 +17,7 @@ Ari IME（macOS）
 
 更新
   下載新版、解壓縮，重新執行 install.sh 即可，自訂詞和設定都會保留。
-  如果更新後只打得出英文，先切到別的輸入法再切回 Ari IME；還是不行就登出再登入。
+  更新前已經開著的 App 要重新開啟才打得出中文（或直接登出再登入）。
 
 移除
   bash ~/Downloads/AriIME-*/uninstall.sh

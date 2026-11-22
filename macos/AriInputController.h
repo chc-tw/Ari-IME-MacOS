@@ -19,6 +19,8 @@
 - (int)ari_candidatePage;
 - (int)ari_caretChar;
 - (int)ari_candidatePageCount;
+- (int)ari_highlight;
+- (int)ari_candidatesOnPage;
 - (NSString *)ari_markStatus;
 @end
 

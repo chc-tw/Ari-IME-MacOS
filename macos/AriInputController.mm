@@ -401,6 +401,19 @@ AriCandidateWindow *sharedCandidateWindow() {
     // you want is often the last one, so make the ends meet: pressing back from
     // the first page lands on the last, and forward from the last returns to
     // the first. The core has no wrap, but a page is just a repeated step.
+    // ↑ on the first entry stays on the page and wraps to its last entry. The
+    // core would go back a page, and from the first page to the very end of the
+    // list. Walking the highlight down the page gets there without the core.
+    if (self.buffer.isPicking() && translated.key.sym() == FcitxKey_Up &&
+        self.buffer.highlight() == 0) {
+        const int onPage = static_cast<int>(self.buffer.candidates().size());
+        for (int i = 1; i < onPage; ++i) {
+            self.buffer.handleKey(fcitx::Key(FcitxKey_Down));
+        }
+        [self updateUIForClient:sender];
+        return YES;
+    }
+
     if (self.buffer.isPicking()) {
         const int pages = self.buffer.candidatePageCount();
         const int page = self.buffer.candidatePage();
@@ -896,6 +909,14 @@ AriCandidateWindow *sharedCandidateWindow() {
 
 - (int)ari_candidatePage {
     return self.buffer.candidatePage();
+}
+
+- (int)ari_highlight {
+    return self.buffer.highlight();
+}
+
+- (int)ari_candidatesOnPage {
+    return static_cast<int>(self.buffer.candidates().size());
 }
 
 - (int)ari_candidatePageCount {

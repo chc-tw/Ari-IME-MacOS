@@ -487,6 +487,26 @@ int main() {
                     @"1", "and after a character in the middle too");
         }
 
+        { // ↑ on the first candidate wraps to the last one on the same page,
+          // not to the last page.
+            Session s;
+            s.type(@"g4");                // 是: several pages of homophones
+            s.send(kVK_DownArrow, @"");
+            check(s.pageCount() > 1, "ㄕˋ has more than one page");
+            s.send(kVK_UpArrow, @"");
+            checkEq([NSString stringWithFormat:@"%d", s.page()], @"1",
+                    "↑ on the first candidate stays on the page");
+            checkEq([NSString stringWithFormat:@"%d", [s.controller ari_highlight]],
+                    [NSString stringWithFormat:@"%d",
+                                               [s.controller ari_candidatesOnPage] - 1],
+                    "and lands on its last candidate");
+            s.send(kVK_UpArrow, @"");
+            checkEq([NSString stringWithFormat:@"%d", [s.controller ari_highlight]],
+                    [NSString stringWithFormat:@"%d",
+                                               [s.controller ari_candidatesOnPage] - 2],
+                    "then ↑ moves up as usual");
+        }
+
         { // Plain Return picks and returns the caret to the end.
             Session s;
             s.type(@"su3cl3");
