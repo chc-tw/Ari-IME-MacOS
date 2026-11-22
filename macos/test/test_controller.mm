@@ -468,6 +468,25 @@ int main() {
                     "the caret stays beside the character that changed");
         }
 
+        { // Opening candidates leaves the caret where it was, after the
+          // character being picked, rather than jumping in front of it.
+            Session s;
+            s.type(@"su3cl3");            // 你好
+            const NSUInteger end = s.client.markedSelection.location;
+            s.send(kVK_DownArrow, @"");   // candidates on 好
+            check(s.buffer_isPicking(), "candidates are open on the last character");
+            checkEq([NSString stringWithFormat:@"%lu",
+                                (unsigned long)s.client.markedSelection.location],
+                    [NSString stringWithFormat:@"%lu", (unsigned long)end],
+                    "the caret stays after the character being picked");
+            s.send(kVK_Escape, @"");
+            s.send(kVK_LeftArrow, @"");   // caret between 你 and 好
+            s.send(kVK_DownArrow, @"");   // candidates on 你
+            checkEq([NSString stringWithFormat:@"%lu",
+                                (unsigned long)s.client.markedSelection.location],
+                    @"1", "and after a character in the middle too");
+        }
+
         { // Plain Return picks and returns the caret to the end.
             Session s;
             s.type(@"su3cl3");

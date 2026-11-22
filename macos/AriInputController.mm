@@ -494,7 +494,7 @@ AriCandidateWindow *sharedCandidateWindow() {
                        range:NSMakeRange(from, to - from)];
     }
     const NSUInteger caret =
-        utf16OffsetForGrapheme(preedit, self.buffer.caretChar());
+        utf16OffsetForGrapheme(preedit, [self displayedCaretChar]);
     [sender setMarkedText:marked
            selectionRange:NSMakeRange(caret, 0)
          replacementRange:replacement];
@@ -593,6 +593,17 @@ AriCandidateWindow *sharedCandidateWindow() {
                                      atRect:[self caretRectForClient:sender]];
 }
 
+// Where the caret is drawn. The core parks it before the character whose
+// candidates are open, but ↓ picks the character before the caret, so the
+// caret would jump left when the window opens and back when it closes. Keep it
+// after that character instead.
+- (int)displayedCaretChar {
+    if (self.buffer.isPicking()) {
+        return self.buffer.selectionChar() + 1;
+    }
+    return self.buffer.caretChar();
+}
+
 - (NSRect)caretRectForClient:(id)sender {
     NSRect rect = NSZeroRect;
     if ([sender respondsToSelector:@selector(attributesForCharacterIndex:
@@ -607,7 +618,7 @@ AriCandidateWindow *sharedCandidateWindow() {
         // the last character before the caret and take its right edge.
         const std::string preedit = self.buffer.preeditText();
         const NSUInteger caret =
-            utf16OffsetForGrapheme(preedit, self.buffer.caretChar());
+            utf16OffsetForGrapheme(preedit, [self displayedCaretChar]);
         if (caret > 0) {
             [sender attributesForCharacterIndex:caret - 1
                         lineHeightRectangle:&rect];
