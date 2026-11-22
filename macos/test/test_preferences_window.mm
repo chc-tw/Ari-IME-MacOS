@@ -58,6 +58,19 @@ int main() {
         check(before.punctuationStyle == after.punctuationStyle,
               "punctuation style survives a write");
         check(before.arrowStyle == after.arrowStyle, "arrow style survives a write");
+
+        // The punctuation modifier is greyed out while punctuation is Chinese,
+        // where it does nothing, and comes back for English punctuation.
+        NSPopUpButton *punctuation = [window valueForKey:@"_punctuation"];
+        NSPopUpButton *shortcut = [window valueForKey:@"_punctuationShortcut"];
+        [punctuation selectItemAtIndex:0];
+        [NSApp sendAction:@selector(settingChanged:) to:window from:punctuation];
+        check(!shortcut.enabled, "the modifier is disabled with Chinese punctuation");
+        [punctuation selectItemAtIndex:1];
+        [NSApp sendAction:@selector(settingChanged:) to:window from:punctuation];
+        check(shortcut.enabled, "and enabled with English punctuation");
+        [punctuation selectItemAtIndex:0];
+        [NSApp sendAction:@selector(settingChanged:) to:window from:punctuation];
         check(before.showBopomofo == after.showBopomofo,
               "ShowBopomofo survives a write");
         check(before.uppercaseIsEnglish == after.uppercaseIsEnglish,

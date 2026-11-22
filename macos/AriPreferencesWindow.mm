@@ -66,6 +66,7 @@ NSTextField *hint(NSString *text) {
     NSButton *_showStatusLine;
     NSButton *_spaceCandidateMode;
     NSPopUpButton *_punctuationShortcut;
+    NSTextField *_punctuationShortcutLabel;
     NSTableView *_boundaries;
     NSTableView *_phrases;
     NSMutableArray<AriMemoryRow *> *_boundaryRows;
@@ -161,7 +162,7 @@ NSTextField *hint(NSString *text) {
         @[ [NSGridCell emptyContentView], _spaceCandidateMode ],
         @[ [NSGridCell emptyContentView],
            hint(@"開啟後，完整音節加空白鍵會開候選，而不是輸入一聲。") ],
-        @[ label(@"中文標點修飾鍵"), _punctuationShortcut ],
+        @[ _punctuationShortcutLabel = label(@"中文標點修飾鍵"), _punctuationShortcut ],
         @[ [NSGridCell emptyContentView],
            hint(@"標點設為英文時，臨時輸入中文標點的修飾鍵。") ],
     ]];
@@ -371,10 +372,22 @@ NSTextField *hint(NSString *text) {
                                     : NSControlStateValueOff;
     [_punctuationShortcut
         selectItemAtIndex:static_cast<NSInteger>(preferences.punctuationShortcut)];
+    [self updateEnabledControls];
+}
+
+// The punctuation modifier only does something when bare punctuation stays
+// English; with Chinese punctuation the keys already give ，。？ on their own.
+- (void)updateEnabledControls {
+    const BOOL englishPunctuation = _punctuation.indexOfSelectedItem == 1;
+    _punctuationShortcut.enabled = englishPunctuation;
+    _punctuationShortcutLabel.textColor = englishPunctuation
+                                              ? NSColor.labelColor
+                                              : NSColor.disabledControlTextColor;
 }
 
 - (void)settingChanged:(id)sender {
     (void)sender;
+    [self updateEnabledControls];
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     [defaults setObject:layoutValues()[(NSUInteger)_layout.indexOfSelectedItem]
                  forKey:@"KeyboardLayout"];
