@@ -361,6 +361,7 @@ AriCandidateWindow *sharedCandidateWindow() {
             return YES;
         }
     }
+    bool steppedForUp = false;
     if (translated.key.sym() == FcitxKey_Up && !self.buffer.isPicking() &&
         !self.buffer.preeditText().empty() &&
         (modifiers & ~static_cast<std::uint32_t>(ari::ModCapsLock)) == 0) {
@@ -391,7 +392,9 @@ AriCandidateWindow *sharedCandidateWindow() {
             [self updateUIForClient:sender];
             return YES;
         }
-        // Nothing to decide: let ↑ mean what it always did.
+        // Nothing to decide: let ↑ mean what it always did. If that opens no
+        // window either, the step left is undone below.
+        steppedForUp = true;
     }
 
     // Paging stops at both ends. On a list of a few dozen homophones the page
@@ -441,7 +444,8 @@ AriCandidateWindow *sharedCandidateWindow() {
         translated.key.sym() == FcitxKey_Escape && self.buffer.isPicking();
 
     const KeyResult result = self.buffer.handleKey(translated.key);
-    if (leavingCandidates && self.buffer.isEditing()) {
+    if ((leavingCandidates || (steppedForUp && !self.buffer.isPicking())) &&
+        self.buffer.isEditing()) {
         self.buffer.handleKey(fcitx::Key(FcitxKey_Right));
     }
 
@@ -621,6 +625,10 @@ AriCandidateWindow *sharedCandidateWindow() {
 // caret would jump left when the window opens and back when it closes. Keep it
 // after that character instead.
 - (int)displayedCaretChar {
+    // The ↑ list stands on the character it asks about; the caret stays after it.
+    if (!_alternatives.empty() && _adjudicating >= 0) {
+        return _adjudicating + 1;
+    }
     if (self.buffer.isPicking()) {
         return self.buffer.selectionChar() + 1;
     }
@@ -822,6 +830,11 @@ AriCandidateWindow *sharedCandidateWindow() {
     const int count = static_cast<int>(_alternatives.size());
 
     if (sym == FcitxKey_Escape) {
+        // ↑ stepped the caret onto the character it asked about; put it back
+        // after it, the way leaving the candidate window does.
+        if (_adjudicating >= 0 && self.buffer.isEditing()) {
+            self.buffer.handleKey(fcitx::Key(FcitxKey_Right));
+        }
         _alternatives.clear();
         [self updateUIForClient:sender];
         return YES;

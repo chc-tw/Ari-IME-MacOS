@@ -570,6 +570,38 @@ int main() {
 
         {
             forgetEverything();
+          // ↑ steps onto the character it asks about, but the caret stays
+          // after it while the list is open and after Esc closes it.
+            Session s;
+            s.type(@"fig4");
+            const NSUInteger end = s.client.markedSelection.location;
+            s.send(kVK_UpArrow, @"");
+            checkEq([NSString stringWithFormat:@"%lu",
+                                (unsigned long)s.client.markedSelection.location],
+                    [NSString stringWithFormat:@"%lu", (unsigned long)end],
+                    "the caret stays put while ↑ asks");
+            s.send(kVK_Escape, @"\x1b");
+            checkEq([NSString stringWithFormat:@"%lu",
+                                (unsigned long)s.client.markedSelection.location],
+                    [NSString stringWithFormat:@"%lu", (unsigned long)end],
+                    "and after Esc");
+        }
+
+        { // ↑ with nothing to ask about leaves the caret where it was.
+            Session s;
+            s.type(@"hello");
+            s.send(kVK_LeftArrow, @"");
+            const int before = s.caret();
+            s.send(kVK_UpArrow, @"");
+            if (!s.buffer_isPicking()) {
+                checkEq([NSString stringWithFormat:@"%d", s.caret()],
+                        [NSString stringWithFormat:@"%d", before],
+                        "↑ on plain English does not move the caret");
+            }
+        }
+
+        {
+            forgetEverything();
           // A clean syllable is ambiguous too — it could have been meant as the
           // keys themselves — so ↑ offers those, replacing the raw-key entry
           // that used to be buried at the end of the候選 list.
