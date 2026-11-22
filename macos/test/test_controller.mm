@@ -590,6 +590,46 @@ int main() {
 
         {
             forgetEverything();
+          // A key that is not a character yet is asked about too, and its
+          // Bopomofo symbol is one of the readings.
+            Session s;
+            s.type(@"1");
+            s.send(kVK_UpArrow, @"");
+            s.type(@"2");
+            checkEq(s.client.markedText, @"ㄅ", "↑ on a lone 1 offers ㄅ");
+            s.type(@"u4");
+            check([s.client.markedText hasPrefix:@"ㄅ"],
+                  "the symbol is finished text; typing continues after it");
+        }
+
+        {
+            forgetEverything();
+          // Asking must not freeze the key: Esc leaves it composing, so the
+          // syllable can still be finished.
+            Session s;
+            s.type(@"1");
+            s.send(kVK_UpArrow, @"");
+            s.send(kVK_Escape, @"\x1b");
+            checkEq(s.client.markedText, @"1", "Esc leaves the key as typed");
+            s.type(@"u4");
+            checkEq(s.client.markedText, @"必", "and 1 + u4 still makes 必");
+        }
+
+        {
+            forgetEverything();
+          // A full syllable offers its symbols as well, and they stay symbols.
+            Session s;
+            s.type(@"su3");
+            s.send(kVK_UpArrow, @"");
+            s.send(kVK_UpArrow, @"");     // wraps to the last entry, the symbols
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.markedText, @"ㄋㄧˇ", "su3 offers ㄋㄧˇ last");
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.committed, @"ㄋㄧˇ", "and commits it unchanged");
+        }
+
+        {
+            forgetEverything();
           // The choice is remembered: the point of asking is not to ask again.
             Session first;
             first.type(@"fig4");

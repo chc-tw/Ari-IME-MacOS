@@ -546,6 +546,35 @@ FAIL backspace restores tone-before-final keys in typed order got="" want="240"
 
 ---
 
+## D13 — 中英裁決：尚未成字的鍵也能問，並提供注音符號
+
+**檔案**：`src/buffer.{h,cpp}`（`boundaryAlternatives()` 拆出 `alternativesForKeys()`；
+新增 `pendingAlternatives()`；`chooseBoundaryAlternative()`）
+**類型**：新增 API + 行為變更（D6/D7 的延伸）
+**衝擊**：`test_buffer` 零變動；`macos/test/test_controller.mm` 加了三個情境
+
+### 問題（2026-11-22 使用者回報）
+
+只打了一個 `1` 或 `su` 這類還沒成字的鍵時按 ↑：前端先按 ← 把尾端凍結成英文格，
+但這些鍵沒有任何中文讀法可選，所以不出現選單，鍵卻已經永遠變成英文，接著打
+`u4` 得到「1亦」而不是「必」。另外使用者想直接打出注音符號本身。
+
+### 改動
+
+- `alternativesForKeys()`：原本的切法邏輯原封搬出。若沒有任何中文讀法、但整串鍵
+  是部分音節（`1`、`su`、`s3`），加一個注音符號讀法（ㄅ、ㄋㄧ、ㄋˇ）。
+- `pendingAlternatives()`：對還在打的尾端（`englishBuf_ + syl_`，加上前面相連的
+  字母數字格）算同樣的讀法，**不凍結**。尾端含標點時回傳空，由前端走原路徑。
+- `chooseBoundaryAlternative()`：選到注音符號（不含漢字）時插入一般文字格，
+  不再做成「讀音不完整的中文格」；後者在重新組字（`feedRun`）時會被打回中文。
+- macOS 前端：↑ 先問 `pendingAlternatives()`，只有真的選了才按 ← 凍結；Esc 不改
+  任何東西；沒得選時 ↑ 什麼都不做。選注音符號不寫進裁決記憶。
+
+**合併風險**：低～中。上游若改 `boundaryAlternatives()`，需確認改動落在
+`alternativesForKeys()`。
+
+---
+
 ## 合併記錄
 
 ### 2026-11-21 — 上游 2.6.3 → 2.8.0（`43718d1`）

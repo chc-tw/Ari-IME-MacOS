@@ -119,6 +119,10 @@ public:
     // Readings of the token containing the character at `idx`, most English
     // first. Empty when that character is not a converted syllable.
     std::vector<BoundaryAlternative> boundaryAlternatives(int idx) const;
+    // The same for the keys still being typed at the end, without freezing
+    // them. Empty when the tail is not plain keys. Choosing still needs the
+    // keys frozen first (← then boundaryAlternatives on the caret).
+    std::vector<BoundaryAlternative> pendingAlternatives() const;
     // Apply one of them, replacing the token's cells.
     KeyResult chooseBoundaryAlternative(int idx, int choice);
     // Same, and remember it: the next time this exact run of keys is typed,
@@ -277,6 +281,8 @@ private:
     void applyRememberedBoundaryToRun();
     // The run of literal English cells ending at `idx`, as a cell index.
     int tokenStart(int idx) const;
+    std::vector<BoundaryAlternative> alternativesForKeys(
+        const std::string &keys) const;
     static bool isLiteralKeyCell(const Cell &cell);
     // Whether a trailing English body may be re-read as a syllable. With
     // uppercaseIsEnglish_ set, one that contains a capital may not: the letters

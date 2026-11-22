@@ -31,6 +31,8 @@ divergent_symbols=(
     handleBackspace      # D8, D12
     runReadings_         # D8 (every live-run reset must clear runOverrides_)
     forgetHighlightedCandidate # D8
+    boundaryAlternatives # D13
+    chooseBoundaryAlternative # D13
     "Zhuyin::Zhuyin"     # D9
     resetAll             # D9
     addUserPhrase        # D9

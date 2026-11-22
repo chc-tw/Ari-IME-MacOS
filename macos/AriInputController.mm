@@ -63,6 +63,16 @@ std::uint32_t modifiersFrom(NSEventModifierFlags flags) {
 
 // The marked-text selection range is measured in UTF-16 units, while Buffer
 // counts grapheme clusters. Convert through the UTF-8 byte offset.
+// Whether `text` starts with a Bopomofo symbol (ㄅ…ㄩ, U+3105–U+3129) rather
+// than a character.
+bool isBopomofo(const std::string &text) {
+    if (text.empty()) {
+        return false;
+    }
+    const auto cp = ari_ime::unicode::decode(text, 0);
+    return cp.value >= 0x3105 && cp.value <= 0x312F;
+}
+
 NSUInteger utf16OffsetForGrapheme(const std::string &text, int grapheme) {
     if (grapheme < 0) {
         return toNSString(text).length;
@@ -354,6 +364,19 @@ AriCandidateWindow *sharedCandidateWindow() {
     if (translated.key.sym() == FcitxKey_Up && !self.buffer.isPicking() &&
         !self.buffer.preeditText().empty() &&
         (modifiers & ~static_cast<std::uint32_t>(ari::ModCapsLock)) == 0) {
+        // Keys still being typed ("1", "su") are asked about without freezing
+        // them; freezing would make them English for good, even on Esc. They
+        // are frozen only once a reading is chosen (applyAlternative).
+        auto pending = self.buffer.pendingAlternatives();
+        if (!pending.empty()) {
+            if (pending.size() > 1) {
+                _alternatives = std::move(pending);
+                _adjudicating = -1;
+                _adjudicationHighlight = 0;
+                [self updateUIForClient:sender];
+            }
+            return YES;
+        }
         // Same positioning as ↓: step the caret onto the character in question,
         // which also freezes the live tail into cells so it can be examined.
         self.buffer.handleKey(fcitx::Key(FcitxKey_Left));
@@ -821,9 +844,21 @@ AriCandidateWindow *sharedCandidateWindow() {
 }
 
 - (void)applyAlternative:(int)choice client:(id)sender {
-    // Remember it: the point of asking is not to ask again.
+    if (_adjudicating < 0) {
+        // Asked about keys still being typed: freeze them now, onto the caret.
+        self.buffer.handleKey(fcitx::Key(FcitxKey_Left));
+        _adjudicating = self.buffer.caretChar();
+    }
+    // Remember it: the point of asking is not to ask again. Bopomofo symbols
+    // are the exception; writing ㄋㄧˇ once says nothing about the next 你.
+    const bool symbols =
+        choice >= 0 && choice < static_cast<int>(_alternatives.size()) &&
+        !_alternatives[static_cast<std::size_t>(choice)].chinese.empty() &&
+        isBopomofo(_alternatives[static_cast<std::size_t>(choice)].chinese);
     const KeyResult result =
-        self.buffer.chooseAndRememberBoundaryAlternative(_adjudicating, choice);
+        symbols ? self.buffer.chooseBoundaryAlternative(_adjudicating, choice)
+                : self.buffer.chooseAndRememberBoundaryAlternative(_adjudicating,
+                                                                   choice);
     _alternatives.clear();
     _adjudicationHighlight = 0;
     [self applyResult:result client:sender];

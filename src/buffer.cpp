@@ -3696,6 +3696,37 @@ Buffer::boundaryAlternatives(int idx) const {
         const Cell &chinese = cells_[idx];
         keys += chinese.typed.empty() ? chinese.reading : chinese.typed;
     }
+    return alternativesForKeys(keys);
+}
+
+std::vector<Buffer::BoundaryAlternative> Buffer::pendingAlternatives() const {
+    // The same readings for keys still being typed, worked out without
+    // freezing them: asking must not turn a pending "1" into English for good
+    // when the answer is "leave it" (D13). Only a tail of plain keys qualifies,
+    // so the result matches what boundaryAlternatives() sees once frozen.
+    if (selecting_ || !zhuyin_.preedit().empty()) {
+        return {};
+    }
+    const std::string pending = englishBuf_ + syl_;
+    if (pending.empty()) {
+        return {};
+    }
+    std::string keys;
+    for (int i = tokenStart(static_cast<int>(cells_.size()));
+         i < static_cast<int>(cells_.size()); ++i) {
+        keys += cells_[i].text;
+    }
+    for (char c : pending) {
+        if (!isLiteralKeyCell({false, std::string(1, c), {}})) {
+            return {};
+        }
+    }
+    return alternativesForKeys(keys + pending);
+}
+
+std::vector<Buffer::BoundaryAlternative>
+Buffer::alternativesForKeys(const std::string &keys) const {
+    std::vector<BoundaryAlternative> alternatives;
     if (keys.empty()) {
         return alternatives;
     }
@@ -3750,6 +3781,13 @@ Buffer::boundaryAlternatives(int idx) const {
         if (!symbols.empty()) {
             alternatives.push_back({most.english, symbols, most.keys});
         }
+    } else if (ari_ime::isValidSyllable(keys, /*allowTone=*/true)) {
+        // Keys that are only part of a syllable ("1", "su") have no character
+        // to offer, but their symbols (ㄅ, ㄋㄧ) are still a reading (D13).
+        const std::string symbols = bopomofoForReading(keys);
+        if (!symbols.empty()) {
+            alternatives.push_back({{}, symbols, keys});
+        }
     }
     return alternatives;
 }
@@ -3767,7 +3805,11 @@ KeyResult Buffer::chooseBoundaryAlternative(int idx, int choice) {
     for (char c : chosen.english) {
         replacement.push_back({false, std::string(1, c), {}, {}});
     }
-    if (!chosen.chinese.empty()) {
+    if (!chosen.chinese.empty() && !containsHanCharacter(chosen.chinese)) {
+        // Bopomofo symbols are finished text, not a character with a reading:
+        // a Chinese cell would be re-fed to chewing and lose them (D13).
+        replacement.push_back({false, chosen.chinese, {}});
+    } else if (!chosen.chinese.empty()) {
         const std::string body = chosen.keys.substr(chosen.english.size());
         replacement.push_back({true, chosen.chinese, ari_ime::canonicalKeys(body),
                                body, /*locked=*/true});
