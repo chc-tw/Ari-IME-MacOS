@@ -38,3 +38,6 @@ result-*
 
 # macOS port: vendored libchewing checkout (built by macos/build-libchewing.sh)
 /third_party/
+
+# macos/release.sh output
+/dist/

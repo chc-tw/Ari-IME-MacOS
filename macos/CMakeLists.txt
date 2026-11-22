@@ -6,7 +6,12 @@
 # platform-neutral core in src/ unchanged, compiled against the fcitx
 # compatibility shims in compat/include and a macOS user_data implementation.
 cmake_minimum_required(VERSION 3.24)
-project(ari_ime_macos VERSION 2.5.2 LANGUAGES CXX OBJCXX)
+# The version follows the root project, so merging an upstream release is
+# enough to bump what the app reports.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../CMakeLists.txt" ari_root_project
+     REGEX "^project\\(ari-ime VERSION [0-9.]+")
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" ARI_VERSION "${ari_root_project}")
+project(ari_ime_macos VERSION ${ARI_VERSION} LANGUAGES CXX OBJCXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
