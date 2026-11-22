@@ -2066,53 +2066,24 @@ KeyResult Buffer::handleBackspace() {
         return {true, false, {}, true};
     }
     if (!zhuyin_.preedit().empty()) {
-        // libchewing keeps a syllable in canonical slot order. For a syllable
-        // whose typed key order differs from that canonical order (for example
-        // "140" → "104"), rebuild the preceding run and restore the user's
-        // original keys. Canonical input keeps libchewing's native Backspace
-        // path, which also preserves its normal phrase-editing semantics.
+        // Backspace deletes the whole character, however its keys were typed.
+        // Upstream restores the typed keys of an out-of-order syllable instead
+        // ("140" -> 辦 -> "140"), but Ari accepts such orders silently, so the
+        // same key looked like it randomly turned a character back into
+        // letters. The raw keys stay one candidate away ("原始鍵"). See D12.
         if (!runReadings_.empty()) {
-            const std::string reading = runReadings_.back();
-            const std::string typed = runTyped_.empty()
-                                          ? reading
-                                          : runTyped_.back();
-            const auto typedParts = typedBody(typed, reading);
-            const auto readingParts = readingBody(reading);
-            if (typedParts == readingParts) {
-                zhuyin_.handleBackspace();
-                runReadings_.pop_back();
-                const int remaining = static_cast<int>(runReadings_.size());
-                runOverrides_.erase(
-                    std::remove_if(runOverrides_.begin(), runOverrides_.end(),
-                                   [remaining](const auto &pin) {
-                                       return pin.second > remaining;
-                                   }),
-                    runOverrides_.end());
-                if (!runTyped_.empty()) {
-                    runTyped_.pop_back();
-                }
-                return {true, false, {}, true};
-            }
-
+            zhuyin_.handleBackspace();
             runReadings_.pop_back();
+            const int remaining = static_cast<int>(runReadings_.size());
+            runOverrides_.erase(
+                std::remove_if(runOverrides_.begin(), runOverrides_.end(),
+                               [remaining](const auto &pin) {
+                                   return pin.second > remaining;
+                               }),
+                runOverrides_.end());
             if (!runTyped_.empty()) {
                 runTyped_.pop_back();
             }
-            runOverrides_.clear();
-
-            zhuyin_.resetAll();
-            for (const std::string &savedReading : runReadings_) {
-                auto [body, tone1] = readingBody(savedReading);
-                for (char c : body) {
-                    zhuyin_.handleDefault(static_cast<int>(c));
-                }
-                if (tone1) {
-                    zhuyin_.handleSpace();
-                }
-            }
-            zhuyin_.promoteUserPhrases();
-            moveAutoCommit();
-            syl_ = typedParts.first;
             return {true, false, {}, true};
         }
 
@@ -2757,8 +2728,32 @@ void Buffer::observeUserOverride(
     if (!top.empty()) {
         after[picked].topValue = top;
     }
-    userOverrides().observe(keyed, after, picked,
-                            ari_ime::UserOverrideModel::now());
+    const double now = ari_ime::UserOverrideModel::now();
+    // Splitting a word lets libchewing re-pick its other characters (乘是 for
+    // 城市 when 成是 was meant). Fixing one of them in the same run corrects
+    // what the split remembered rather than starting a new memory.
+    SplitMemory &split = lastSplit_;
+    if (split.runStart == selRunStart_ && split.readings == readings &&
+        after[picked].length == 1 && pickedOffset >= split.from &&
+        pickedOffset < split.to) {
+        const auto chars = splitUtf8(zhuyin_.preedit());
+        if (static_cast<int>(chars.size()) >= split.to) {
+            std::string text;
+            for (int k = split.from; k < split.to; ++k) {
+                text += chars[static_cast<std::size_t>(k)];
+            }
+            userOverrides().revise(split.key, split.value, text, now);
+            split.value = text;
+            return;
+        }
+    }
+    const auto stored = userOverrides().observe(keyed, after, picked, now);
+    if (!stored.key.empty() && stored.to - stored.from > after[picked].length) {
+        split = {stored.key, stored.value, readings, selRunStart_, stored.from,
+                 stored.to};
+    } else {
+        split = {};
+    }
 }
 
 void Buffer::applyUserOverrideToRun() {
@@ -2788,7 +2783,18 @@ void Buffer::applyUserOverrideToRun() {
             return;
         }
     }
-    if (selectRunCandidate(start, suggestion)) {
+    // A split word (成是 for 城市) is usually not a dictionary phrase; pin it
+    // one character at a time.
+    bool chosen = selectRunCandidate(start, suggestion);
+    if (!chosen && length > 1) {
+        const auto chars = splitUtf8(suggestion);
+        chosen = true;
+        for (int k = 0; k < length && chosen; ++k) {
+            chosen = selectRunCandidate(start + k,
+                                        chars[static_cast<std::size_t>(k)]);
+        }
+    }
+    if (chosen) {
         runOverrides_.emplace_back(start, n);
     }
 }

@@ -37,21 +37,30 @@ public:
     };
     using Walk = std::vector<Node>;
 
+    // What observe() stored: the key, the suggested text, and the syllables
+    // [from, to) of the walk that text covers. An empty key means nothing.
+    struct Observed {
+        std::string key;
+        std::string value;
+        int from = 0;
+        int to = 0;
+    };
+
     UserOverrideModel(std::size_t capacity, double halfLifeSeconds)
         : capacity_(capacity), decayExponent_(std::log(0.5) / halfLifeSeconds) {}
 
     // Learn from a pick that turned `before` into `after`. `pickedNode` indexes
     // the node in `after` that the user chose.
-    void observe(const Walk &before, const Walk &after, std::size_t pickedNode,
-                 double timestamp) {
+    Observed observe(const Walk &before, const Walk &after,
+                     std::size_t pickedNode, double timestamp) {
         if (before.empty() || pickedNode >= after.size() ||
             totalLength(before) != totalLength(after)) {
-            return;
+            return {};
         }
         const Node &current = after[pickedNode];
         // McBopomofo found longer phrases not worth remembering.
         if (current.length > 3) {
-            return;
+            return {};
         }
         // The node in the earlier walk that ended where the pick ends.
         int end = 0;
@@ -60,15 +69,47 @@ public:
         }
         const std::size_t prevHead = nodeContaining(before, end - 1);
         if (prevHead >= before.size()) {
-            return;
+            return {};
         }
-        // Splitting a phrase into a single character keys the observation on
-        // the walk after the pick, since the phrase it broke is not coming back.
+        // Splitting a word with a single character (是 for the 市 of 城市) is
+        // remembered against the word the dictionary will show again next time,
+        // and suggests the whole split text (成是) in its place. McBopomofo keys
+        // this on the walk after the pick instead, where a later conversion,
+        // which shows the unsplit word, never finds it.
         const bool breakingUp =
             current.length == 1 && before[prevHead].length > 1;
-        const std::string key = breakingUp ? formKey(after, pickedNode)
-                                           : formKey(before, prevHead);
-        observe(key, current.value, timestamp);
+        int headStart = 0;
+        for (std::size_t i = 0; i < prevHead; ++i) {
+            headStart += before[i].length;
+        }
+        Observed stored{formKey(before, prevHead), current.value,
+                        end - current.length, end};
+        if (breakingUp) {
+            stored.from = headStart;
+            stored.to = headStart + before[prevHead].length;
+            stored.value = textOf(after, stored.from, stored.to);
+            if (stored.value.empty()) {
+                return {};
+            }
+        }
+        observe(stored.key, stored.value, timestamp);
+        return stored;
+    }
+
+    // Replace what an earlier observation under `key` suggested, as when the
+    // user goes on to fix another character of a word they just split.
+    void revise(const std::string &key, const std::string &oldValue,
+                const std::string &newValue, double timestamp) {
+        const auto found = index_.find(key);
+        if (found != index_.end()) {
+            Observation &observation = found->second->second;
+            const auto old = observation.overrides.find(oldValue);
+            if (old != observation.overrides.end()) {
+                observation.count -= old->second.count;
+                observation.overrides.erase(old);
+            }
+        }
+        observe(key, newValue, timestamp);
     }
 
     // The remembered pick for the node at `head`, or "" when there is none.
@@ -116,17 +157,21 @@ public:
         return candidate;
     }
 
-    // Drop every memory that would suggest `candidate`. Returns how many were
-    // removed.
+    // Drop every memory that would put `candidate` on screen, including a
+    // split word that contains it. Returns how many were removed.
     int forget(const std::string &candidate) {
         int removed = 0;
         for (auto it = lru_.begin(); it != lru_.end();) {
             auto &overrides = it->second.overrides;
-            const auto found = overrides.find(candidate);
-            if (found != overrides.end()) {
-                it->second.count -= found->second.count;
-                overrides.erase(found);
-                ++removed;
+            for (auto found = overrides.begin(); found != overrides.end();) {
+                if (!candidate.empty() &&
+                    found->first.find(candidate) != std::string::npos) {
+                    it->second.count -= found->second.count;
+                    found = overrides.erase(found);
+                    ++removed;
+                } else {
+                    ++found;
+                }
             }
             if (overrides.empty()) {
                 index_.erase(it->first);
@@ -185,6 +230,25 @@ private:
             total += node.length;
         }
         return total;
+    }
+
+    // The text of syllables [from, to) of a walk, one character per syllable.
+    static std::string textOf(const Walk &walk, int from, int to) {
+        std::string all;
+        for (const Node &node : walk) {
+            all += node.value;
+        }
+        std::string out;
+        int at = -1;
+        for (unsigned char c : all) {
+            if ((c & 0xC0) != 0x80) {
+                ++at;
+            }
+            if (at >= from && at < to) {
+                out.push_back(static_cast<char>(c));
+            }
+        }
+        return at + 1 == totalLength(walk) ? out : std::string{};
     }
 
     static std::size_t nodeContaining(const Walk &walk, int offset) {

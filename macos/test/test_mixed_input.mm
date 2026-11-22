@@ -93,6 +93,27 @@ int main() {
         checkBoundary("su3", "", 1, "a bare syllable");
         checkBoundary("README.md", "README.md", 0, "plain English is untouched");
 
+        // --- Backspace deletes the whole character (D12) -------------------
+        // s3u is ㄋㄧˇ typed tone-first, which converts like su3. Upstream turns
+        // it back into its keys on Backspace; this fork deletes it like any
+        // other character.
+        {
+            Buffer buffer;
+            for (const char *p = "su3s3u"; *p; ++p) {
+                buffer.handleKey(fcitx::Key(static_cast<fcitx::KeySym>(*p)));
+            }
+            const std::string both = buffer.preeditText();
+            buffer.handleKey(fcitx::Key(FcitxKey_BackSpace));
+            ++checks;
+            const auto left = ari_ime::unicode::splitGraphemes(buffer.preeditText());
+            if (left.size() != 1 || both.rfind(buffer.preeditText(), 0) != 0) {
+                ++failures;
+                printf("FAIL %-44s got=\"%s\" from \"%s\"\n",
+                       "Backspace deletes an out-of-order syllable whole",
+                       buffer.preeditText().c_str(), both.c_str());
+            }
+        }
+
         [NSFileManager.defaultManager removeItemAtPath:sandbox error:nil];
         printf("\n%d checks, %d failures\n", checks, failures);
         return failures == 0 ? 0 : 1;

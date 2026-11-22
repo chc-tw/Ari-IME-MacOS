@@ -28,7 +28,7 @@ divergent_symbols=(
     freezeRun            # D8
     moveAutoCommit       # D8
     learnFromCells       # D8
-    handleBackspace      # D8
+    handleBackspace      # D8, D12
     runReadings_         # D8 (every live-run reset must clear runOverrides_)
     forgetHighlightedCandidate # D8
     "Zhuyin::Zhuyin"     # D9

@@ -444,6 +444,17 @@ private:
     bool boundaryMemoryAllowed_ = true;
     // Spans [start, end) of the live run that the short-term memory chose.
     std::vector<std::pair<int, int>> runOverrides_;
+    // The last word split by a pick (see observeUserOverride), so fixing
+    // another of its characters in the same run revises that memory.
+    struct SplitMemory {
+        std::string key;
+        std::string value;
+        std::vector<std::string> readings;
+        int runStart = -1;
+        int from = 0;
+        int to = 0;
+    };
+    SplitMemory lastSplit_;
     // Where a Shift+←/→ mark started, as a caret position; -1 when none.
     int markAnchor_ = -1;
     ari_ime::KeyboardLayout layout_ = ari_ime::KeyboardLayout::Default;

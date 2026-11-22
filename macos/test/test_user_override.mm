@@ -225,6 +225,53 @@ bool pickAt(Buffer &buffer, int left, const std::string &text) {
     return pickLast(buffer, text);
 }
 
+// Picking a single character inside a word splits it (是 for the 市 of 城市).
+// The next conversion shows the unsplit word again, so that is where the
+// memory must be found.
+void testSplitWord() {
+    Buffer::clearUserOverrides();
+    // vm03 t/6 g4 = ㄒㄩㄢˇ ㄔㄥˊ ㄕˋ, which the dictionary reads as 選城市.
+    const std::string before = typed("vm03t/6g4");
+    const std::string alone = typed("t/6g4");
+    std::string split;
+    {
+        Buffer buffer;
+        type(buffer, "vm03t/6g4");
+        check(pickLast(buffer, "是"), "是 is offered for the last syllable");
+        split = buffer.preeditText();
+        buffer.handleKey(fcitx::Key(FcitxKey_Return));
+    }
+    check(before != split, "the pick split a word");
+    checkEq(typed("vm03t/6g4"), split, "the split is applied next time");
+    checkEq(typed("vm03t/6g4ji3"), split + typed("ji3"),
+            "and holds while typing continues");
+    checkEq(typed("t/6g4"), alone, "only in its own context");
+
+    // libchewing re-picks the rest of a split word on its own; fixing that
+    // too revises the memory instead of keeping the first guess.
+    Buffer::clearUserOverrides();
+    std::string fixed;
+    {
+        Buffer buffer;
+        type(buffer, "ji3t/6g4gp6ak7"); // 我 ㄔㄥˊ ㄕˋ 什麼
+        check(pickAt(buffer, 3, "是"), "是 can split the middle word");
+        buffer.handleKey(fcitx::Key(FcitxKey_End));
+        check(pickAt(buffer, 4, "成"), "and 成 fixes its first character");
+        fixed = buffer.preeditText();
+        buffer.handleKey(fcitx::Key(FcitxKey_Return));
+    }
+    checkEq(fixed, "我成是什麼", "both picks took");
+    checkEq(typed("ji3t/6g4gp6ak7"), fixed,
+            "the revised split is what comes back");
+
+    // Forgetting a character forgets a split that contains it.
+    ari_ime::UserOverrideModel model(4, 5400.0);
+    model.observe("k", "成是", 0);
+    check(model.forget("是") == 1 && model.suggest("k", 0).empty(),
+          "forgetting 是 drops the split 成是");
+    Buffer::clearUserOverrides();
+}
+
 void testCustomPhrase() {
     Buffer::clearUserOverrides();
     // 妳號 (ㄋㄧˇ ㄏㄠˋ) is in no dictionary: compose it by hand first.
@@ -285,6 +332,7 @@ int main() {
         testNothingPersisted();
         testSensitiveField();
         testForget();
+        testSplitWord();
         testCustomPhrase();
 
         [NSFileManager.defaultManager removeItemAtPath:sandbox error:nil];
