@@ -64,7 +64,7 @@ cmake --build "$build_dir" -j "$(sysctl -n hw.ncpu)" >/dev/null
 # by design (docs/core-divergence.md), so it is reported but not gating.
 printf '==> tests\n'
 (cd "$build_dir" && ctest -E '^test_buffer$' --output-on-failure) | tail -3
-(cd "$build_dir" && ctest -R '^test_buffer$' --output-on-failure) |
+(cd "$build_dir" && ctest -R '^test_buffer$' --output-on-failure 2>&1) |
     grep -E '^FAIL|checks' || true
 
 app="$build_dir/AriIME.app"
