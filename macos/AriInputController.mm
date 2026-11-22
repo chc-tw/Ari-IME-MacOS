@@ -401,17 +401,24 @@ AriCandidateWindow *sharedCandidateWindow() {
     // you want is often the last one, so make the ends meet: pressing back from
     // the first page lands on the last, and forward from the last returns to
     // the first. The core has no wrap, but a page is just a repeated step.
-    // ↑ on the first entry stays on the page and wraps to its last entry. The
-    // core would go back a page, and from the first page to the very end of the
-    // list. Walking the highlight down the page gets there without the core.
-    if (self.buffer.isPicking() && translated.key.sym() == FcitxKey_Up &&
-        self.buffer.highlight() == 0) {
+    // ↑ on a page's first entry and ↓ on its last wrap within the page. The
+    // core moves to the previous or next page instead, and from the first page
+    // ↑ goes to the very end of the list. Walking the highlight along the page
+    // gets there without the core.
+    if (preferences.candidateWrapWithinPage && self.buffer.isPicking()) {
+        const fcitx::KeySym sym = translated.key.sym();
         const int onPage = static_cast<int>(self.buffer.candidates().size());
-        for (int i = 1; i < onPage; ++i) {
-            self.buffer.handleKey(fcitx::Key(FcitxKey_Down));
+        const int at = self.buffer.highlight();
+        const bool wrapUp = sym == FcitxKey_Up && at == 0;
+        const bool wrapDown = sym == FcitxKey_Down && at == onPage - 1;
+        if (onPage > 1 && (wrapUp || wrapDown)) {
+            const fcitx::Key step(wrapUp ? FcitxKey_Down : FcitxKey_Up);
+            for (int i = 1; i < onPage; ++i) {
+                self.buffer.handleKey(step);
+            }
+            [self updateUIForClient:sender];
+            return YES;
         }
-        [self updateUIForClient:sender];
-        return YES;
     }
 
     if (self.buffer.isPicking()) {

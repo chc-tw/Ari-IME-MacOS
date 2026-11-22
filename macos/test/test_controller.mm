@@ -505,6 +505,25 @@ int main() {
                     [NSString stringWithFormat:@"%d",
                                                [s.controller ari_candidatesOnPage] - 2],
                     "then ↑ moves up as usual");
+            s.send(kVK_DownArrow, @"");
+            s.send(kVK_DownArrow, @"");   // ↓ on the last candidate
+            checkEq([NSString stringWithFormat:@"%d", s.page()], @"1",
+                    "↓ on the last candidate stays on the page");
+            checkEq([NSString stringWithFormat:@"%d", [s.controller ari_highlight]],
+                    @"0", "and wraps to its first candidate");
+        }
+
+        { // With the setting off, ↑ on the first candidate leaves the page as
+          // the core does.
+            [NSUserDefaults.standardUserDefaults setBool:NO
+                                                  forKey:@"CandidateWrapWithinPage"];
+            Session s;
+            s.type(@"g4");
+            s.send(kVK_DownArrow, @"");
+            s.send(kVK_UpArrow, @"");
+            check(s.page() != 1, "↑ on the first candidate changes page when off");
+            [NSUserDefaults.standardUserDefaults
+                removeObjectForKey:@"CandidateWrapWithinPage"];
         }
 
         { // Plain Return picks and returns the caret to the end.

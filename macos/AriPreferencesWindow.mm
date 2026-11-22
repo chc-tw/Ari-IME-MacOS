@@ -62,6 +62,7 @@ NSTextField *hint(NSString *text) {
     NSButton *_showBopomofo;
     NSButton *_uppercaseIsEnglish;
     NSButton *_caretStaysAfterPick;
+    NSButton *_candidateWrapWithinPage;
     NSButton *_autoLearn;
     NSButton *_showStatusLine;
     NSButton *_spaceCandidateMode;
@@ -122,6 +123,7 @@ NSTextField *hint(NSString *text) {
     _showBopomofo = [self checkboxWithTitle:@"打字時顯示注音"];
     _uppercaseIsEnglish = [self checkboxWithTitle:@"大寫字母一律當英文"];
     _caretStaysAfterPick = [self checkboxWithTitle:@"⌘Return 選字後游標留在原地"];
+    _candidateWrapWithinPage = [self checkboxWithTitle:@"候選 ↑↓ 在同一頁內循環"];
 
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[ label(@"鍵盤配列"), _layout ],
@@ -141,6 +143,9 @@ NSTextField *hint(NSString *text) {
         @[ [NSGridCell emptyContentView], _caretStaysAfterPick ],
         @[ [NSGridCell emptyContentView],
            hint(@"一般選字後游標回到行尾；⌘Return 則留在剛改動的字旁邊。") ],
+        @[ [NSGridCell emptyContentView], _candidateWrapWithinPage ],
+        @[ [NSGridCell emptyContentView],
+           hint(@"第一個候選按 ↑ 跳到本頁最後一個，最後一個按 ↓ 回到本頁第一個；關閉則換頁。") ],
     ]];
     grid.columnSpacing = 10;
     grid.rowSpacing = 6;
@@ -363,6 +368,9 @@ NSTextField *hint(NSString *text) {
         preferences.uppercaseIsEnglish ? NSControlStateValueOn : NSControlStateValueOff;
     _caretStaysAfterPick.state =
         preferences.caretStaysAfterPick ? NSControlStateValueOn : NSControlStateValueOff;
+    _candidateWrapWithinPage.state = preferences.candidateWrapWithinPage
+                                         ? NSControlStateValueOn
+                                         : NSControlStateValueOff;
     _autoLearn.state = preferences.autoLearn ? NSControlStateValueOn
                                              : NSControlStateValueOff;
     _showStatusLine.state = preferences.showStatusLine ? NSControlStateValueOn
@@ -402,6 +410,8 @@ NSTextField *hint(NSString *text) {
                forKey:@"UppercaseIsEnglish"];
     [defaults setBool:_caretStaysAfterPick.state == NSControlStateValueOn
                forKey:@"CaretStaysAfterPick"];
+    [defaults setBool:_candidateWrapWithinPage.state == NSControlStateValueOn
+               forKey:@"CandidateWrapWithinPage"];
     [defaults setBool:_autoLearn.state == NSControlStateValueOn forKey:@"AutoLearn"];
     [defaults setBool:_showStatusLine.state == NSControlStateValueOn
                forKey:@"ShowStatusLine"];

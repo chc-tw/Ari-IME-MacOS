@@ -47,6 +47,9 @@ struct Preferences {
     // ⌘Return picks a candidate and leaves the caret where it was, instead of
     // returning it to the end of the composition. On by default.
     bool caretStaysAfterPick = true;
+    // ↑ on a page's first candidate and ↓ on its last wrap within the page,
+    // rather than moving to the previous or next page. On by default.
+    bool candidateWrapWithinPage = true;
     ArrowStyle arrowStyle = ArrowStyle::MacOS;
 };
 

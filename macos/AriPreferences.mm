@@ -24,6 +24,7 @@ NSString *const kShowStatusLine = @"ShowStatusLine";
 NSString *const kShowBopomofo = @"ShowBopomofo";
 NSString *const kUppercaseIsEnglish = @"UppercaseIsEnglish";
 NSString *const kCaretStaysAfterPick = @"CaretStaysAfterPick";
+NSString *const kCandidateWrapWithinPage = @"CandidateWrapWithinPage";
 NSString *const kCandidateArrowKeys = @"CandidateArrowKeys";
 
 bool boolOr(NSUserDefaults *defaults, NSString *key, bool fallback) {
@@ -76,6 +77,8 @@ Preferences currentPreferences(void *defaultsOrNil) {
         boolOr(defaults, kUppercaseIsEnglish, preferences.uppercaseIsEnglish);
     preferences.caretStaysAfterPick =
         boolOr(defaults, kCaretStaysAfterPick, preferences.caretStaysAfterPick);
+    preferences.candidateWrapWithinPage = boolOr(
+        defaults, kCandidateWrapWithinPage, preferences.candidateWrapWithinPage);
 
     NSString *arrows = [defaults stringForKey:kCandidateArrowKeys];
     if ([arrows isEqualToString:@"Linux"]) {

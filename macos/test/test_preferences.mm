@@ -42,6 +42,7 @@ int main() {
             check(p.showBopomofo, "ShowBopomofo on by default");
             check(p.uppercaseIsEnglish, "UppercaseIsEnglish on by default");
             check(p.caretStaysAfterPick, "CaretStaysAfterPick on by default");
+            check(p.candidateWrapWithinPage, "CandidateWrapWithinPage on by default");
         }
 
         { // Enums decode from the same strings the Fcitx5 config uses.
