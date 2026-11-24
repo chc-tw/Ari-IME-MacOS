@@ -36,6 +36,7 @@ divergent_symbols=(
     chooseAndRememberBoundaryAlternative # D15
     tokenStart # D15
     alternativesForKeys # D13, D16
+    handleSpace # D17
     buildSelCands # D14
     "Zhuyin::Zhuyin"     # D9
     resetAll             # D9

@@ -1453,8 +1453,105 @@ KeyResult Buffer::handleChar(char c, bool literal) {
         syllableConverts(body)) {
         integrateSyllable(body, syl_);
         syl_.clear();
+    } else if (ari_ime::isToneKey(c)) {
+        resolveStuckSyllable(/*tone1=*/false);
     }
     return {true, false, {}, true};
+}
+
+bool Buffer::resolveStuckSyllable(bool tone1) {
+    if (syl_.size() < 2) {
+        return false;
+    }
+    const bool needsBody =
+        ari_ime::needsBodyBeforeToneCompletion(ari_ime::currentKeyboardLayout());
+    // Whether keys[k..] (with the tone already in them, or 一聲 to follow) is a
+    // syllable that is a character on its own.
+    auto converts = [&](const std::string &suffix) {
+        if (suffix.empty() || ari_ime::isToneKey(suffix.front()) ||
+            !bodyIsPeelable(suffix)) {
+            return false;
+        }
+        const std::string canonical = ari_ime::canonicalKeys(suffix);
+        if (tone1) {
+            return ari_ime::isValidSyllable(suffix, /*allowTone=*/false) &&
+                   syllableConvertsTone1(canonical);
+        }
+        return ari_ime::isValidSyllable(suffix, /*allowTone=*/true) &&
+               (!needsBody || ari_ime::hasMedialOrFinal(canonical)) &&
+               syllableConverts(canonical);
+    };
+    // Freeze keys[0..k) as literal keys and start a run with the rest.
+    auto split = [&](std::size_t k) {
+        const std::string keys = syl_;
+        const std::string suffix = keys.substr(k);
+        const std::string canonical = ari_ime::canonicalKeys(suffix);
+        freezeRun();
+        freezeEnglish();
+        for (std::size_t i = 0; i < k; ++i) {
+            cells_.push_back({false, std::string(1, keys[i]), {}});
+        }
+        zhuyin_.feedSequence(canonical);
+        if (tone1) {
+            zhuyin_.handleSpace();
+        }
+        runReadings_ = {tone1 ? canonical + " " : canonical};
+        runOverrides_.clear();
+        runTyped_ = {tone1 ? suffix + " " : suffix};
+        zhuyin_.promoteUserPhrases();
+        moveAutoCommit();
+        syl_.clear();
+        token_ = Token::Chinese;
+    };
+
+    // A remembered answer for exactly these keys comes first; without this a
+    // decision made with ↑ could never apply here, as nothing ever converts.
+    // The token's keys are the literal keys in front plus these, exactly as
+    // boundaryAlternatives() spells them once converted.
+    std::string prefix;
+    if (!zhuyin_.hasConverted() && englishBuf_.empty()) {
+        for (int i = tokenStart(static_cast<int>(cells_.size()));
+             i < static_cast<int>(cells_.size()); ++i) {
+            prefix += cells_[i].text;
+        }
+    }
+    const std::string keys = prefix + syl_ + (tone1 ? " " : "");
+    for (const auto &entry : rememberedBoundaries()) {
+        if (entry.keys != keys || entry.english.size() < prefix.size()) {
+            continue;
+        }
+        const std::size_t k = entry.english.size() - prefix.size();
+        if (entry.chinese.empty()) {
+            // Remembered as English: the keys stay keys.
+            const std::string literal = syl_;
+            freezeRun();
+            freezeEnglish();
+            for (char key : literal) {
+                cells_.push_back({false, std::string(1, key), {}});
+            }
+            if (tone1) {
+                cells_.push_back({false, " ", {}});
+            }
+            syl_.clear();
+            token_ = Token::Chinese;
+            return true;
+        }
+        if (k > 0 && k < syl_.size() && converts(syl_.substr(k))) {
+            split(k);
+            return true;
+        }
+        break; // the remembered reading no longer applies; decide afresh
+    }
+
+    // Otherwise the longest trailing syllable that is a character wins: the
+    // keys in front of it are the ones that did not belong.
+    for (std::size_t k = 1; k < syl_.size(); ++k) {
+        if (converts(syl_.substr(k))) {
+            split(k);
+            return true;
+        }
+    }
+    return false;
 }
 
 KeyResult Buffer::handleLiteralChar(char c) {
@@ -1980,6 +2077,10 @@ KeyResult Buffer::handleSpace() {
             token_ = Token::Chinese;
             return {true, false, {}, true};
         }
+    }
+    if (!forcedEnglish_ && token_ == Token::Chinese && !syl_.empty() &&
+        resolveStuckSyllable(/*tone1=*/true)) {
+        return {true, false, {}, true};
     }
     if (!forcedEnglish_ && token_ == Token::English) {
         KeyResult peeled;

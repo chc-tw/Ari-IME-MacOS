@@ -321,6 +321,11 @@ private:
     // are English, so a tone must not claim them back.
     bool bodyIsPeelable(const std::string &body) const;
     bool tryPeelEnglishTone1(KeyResult &out);
+    // Pending keys that a tone (or the 一聲 Space) completes into a slot-valid
+    // syllable that is not a character — 9yj3 is ㄗㄨㄞˇ. Apply a remembered
+    // split for them, or keep a leading part literal and convert the longest
+    // trailing syllable that is a character (9 + 組). D17.
+    bool resolveStuckSyllable(bool tone1);
     KeyResult handleSpace();
     KeyResult handleEnter();
     KeyResult handleBackspace();

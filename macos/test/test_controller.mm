@@ -819,6 +819,58 @@ int main() {
             [NSUserDefaults.standardUserDefaults removeObjectForKey:@"KeySymbolsReading"];
         }
 
+        {
+            forgetEverything();
+          // Keys that slot into one syllable but are no character once toned
+          // (9yj3 is ㄗㄨㄞˇ) used to stay stuck as keys. The longest trailing
+          // syllable that is a character converts, the rest stays literal.
+            Session s;
+            s.type(@"9yj3");
+            checkEq(s.client.markedText, @"9組", "9yj3 reads as 9 + 組");
+            Session k;
+            k.type(@"ksu3");
+            checkEq(k.client.markedText, @"k你", "ksu3 reads as k + 你");
+            Session space;
+            space.type(@"9yj ");
+            checkEq(space.client.markedText, @"9租", "and with the 一聲 Space too");
+            Session order;
+            order.type(@"s3u");
+            checkEq(order.client.markedText, @"你", "out-of-order keys still complete");
+            Session whole;
+            whole.type(@"9s3");
+            check(whole.client.markedText.length == 1,
+                  "a whole syllable that is a character is not split");
+        }
+
+        {
+            forgetEverything();
+          // A remembered answer applies to these keys too: English stays
+          // English, and changing it back with ↑ sticks.
+            {
+                Session s;
+                s.type(@"9yj3");
+                s.send(kVK_UpArrow, @"");
+                s.type(@"1");
+                checkEq(s.client.markedText, @"9yj3", "↑ 1 keeps 9yj3 as keys");
+                s.send(kVK_Return, @"\r");
+            }
+            {
+                Session s;
+                s.type(@"9yj3");
+                checkEq(s.client.markedText, @"9yj3", "the English answer is applied");
+                s.send(kVK_UpArrow, @"");
+                s.type(@"3");             // 9yj3, 9y五, 9組, …
+                checkEq(s.client.markedText, @"9組", "↑ 3 picks 9 + 組 again");
+                s.send(kVK_Return, @"\r");
+            }
+            {
+                Session s;
+                s.type(@"9yj3");
+                checkEq(s.client.markedText, @"9組", "and that answer sticks");
+            }
+            forgetEverything();
+        }
+
         { // Plain English has no reading to choose between, so ↑ falls through.
             Session s;
             s.type(@"README");
