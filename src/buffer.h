@@ -123,10 +123,17 @@ public:
     // them. Empty when the tail is not plain keys. Choosing still needs the
     // keys frozen first (← then boundaryAlternatives on the caret).
     std::vector<BoundaryAlternative> pendingAlternatives() const;
+    // Which of `alternatives` (from boundaryAlternatives(idx)) is the reading
+    // currently on screen, or -1. A different character with the same split
+    // (訂 picked over 定) still counts as that reading. The list should open
+    // on it, so a stray Enter keeps the text as it is.
+    int displayedBoundaryAlternative(
+        int idx, const std::vector<BoundaryAlternative> &alternatives) const;
     // Apply one of them, replacing the token's cells.
     KeyResult chooseBoundaryAlternative(int idx, int choice);
     // Same, and remember it: the next time this exact run of keys is typed,
-    // the same reading is chosen without asking again.
+    // the same reading is chosen without asking again. Choosing the reading
+    // already displayed changes nothing and remembers nothing.
     KeyResult chooseAndRememberBoundaryAlternative(int idx, int choice);
 
     // One remembered adjudication, for review and removal.
@@ -178,6 +185,27 @@ public:
             return false;
         }
         uppercaseIsEnglish_ = on;
+        return true;
+    }
+    // Which end of a phrase ↓ offers it from. Off (upstream): at its first
+    // character, so 服飾 is re-picked with the caret on 服. On: at its last
+    // character, the way 新酷音's 後方選詞 works, so the phrase just typed is
+    // re-picked without moving the caret back.
+    bool setPhraseChoiceRearward(bool on) {
+        if (phraseChoiceRearward_ == on) {
+            return false;
+        }
+        phraseChoiceRearward_ = on;
+        return true;
+    }
+    // ↑ also offers every run of 注音 keys read key by key as symbols (cc →
+    // ㄏㄏ), not only runs that form a syllable. Off upstream: it opens the
+    // list on plain English words too (D16).
+    bool setKeySymbolsReading(bool on) {
+        if (keySymbolsReading_ == on) {
+            return false;
+        }
+        keySymbolsReading_ = on;
         return true;
     }
     bool setSpaceCandidateMode(bool on) {
@@ -281,6 +309,10 @@ private:
     void applyRememberedBoundaryToRun();
     // The run of literal English cells ending at `idx`, as a cell index.
     int tokenStart(int idx) const;
+    // tokenStart() for an adjudication: a token a remembered decision turned
+    // back into keys may contain keys that are not letters or digits (the
+    // , . / ; - of the standard layout), and must still be askable whole.
+    int adjudicationStart(int idx) const;
     std::vector<BoundaryAlternative> alternativesForKeys(
         const std::string &keys) const;
     static bool isLiteralKeyCell(const Cell &cell);
@@ -435,6 +467,8 @@ private:
     ari_ime::ChinesePunctuationShortcut punctuationShortcut_ =
         ari_ime::ChinesePunctuationShortcut::ControlShift;
     bool spaceCandidateMode_ = false;
+    bool phraseChoiceRearward_ = false;
+    bool keySymbolsReading_ = false;
     bool uppercaseIsEnglish_ = false;
     ari_ime::CandidateArrowKeys candidateArrowKeys_ =
         ari_ime::CandidateArrowKeys::MoveCursor;

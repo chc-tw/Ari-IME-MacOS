@@ -69,8 +69,10 @@ bool isBopomofo(const std::string &text) {
     if (text.empty()) {
         return false;
     }
+    // A run read key by key can start with a tone mark (3c → ˇㄏ).
     const auto cp = ari_ime::unicode::decode(text, 0);
-    return cp.value >= 0x3105 && cp.value <= 0x312F;
+    return (cp.value >= 0x3105 && cp.value <= 0x312F) || cp.value == 0x02C7 ||
+           cp.value == 0x02CA || cp.value == 0x02CB || cp.value == 0x02D9;
 }
 
 NSUInteger utf16OffsetForGrapheme(const std::string &text, int grapheme) {
@@ -233,6 +235,8 @@ AriCandidateWindow *sharedCandidateWindow() {
     }
     self.buffer.setChinesePunctuationShortcut(preferences.punctuationShortcut);
     self.buffer.setSpaceCandidateMode(preferences.spaceCandidateMode);
+    self.buffer.setPhraseChoiceRearward(preferences.phraseChoiceRearward);
+    self.buffer.setKeySymbolsReading(preferences.keySymbolsReading);
     // Picking returns the caret to the end; ⌘Return (below) is the gesture
     // that keeps it beside the change, so the core's mid-line default would
     // take that choice away from plain Return.
@@ -310,6 +314,29 @@ AriCandidateWindow *sharedCandidateWindow() {
         return YES;
     }
 
+    // ⌥ plus a number-row digit types the full-width digit (１２３), as the
+    // system Bopomofo input method does — but only while punctuation is set to
+    // Chinese. With English punctuation, or in English mode, the key keeps the
+    // layout's own ⌥ character (¡ ™ £ …).
+    if ((modifiers & ~static_cast<std::uint32_t>(ari::ModCapsLock)) ==
+            ari::ModOption &&
+        character.size() == 1 && character[0] >= '0' && character[0] <= '9' &&
+        preferences.punctuationStyle == ari::PunctuationStyle::Chinese &&
+        !self.buffer.isForcedEnglish()) {
+        if (self.buffer.isPicking()) {
+            return YES; // no place for it in a candidate list; don't leak it
+        }
+        NSString *digit = [NSString
+            stringWithFormat:@"%C", static_cast<unichar>(0xFF10 + (character[0] - '0'))];
+        if (self.buffer.preeditText().empty()) {
+            [sender insertText:digit replacementRange:NSMakeRange(NSNotFound, 0)];
+        } else {
+            self.buffer.pasteAtCaret(digit.UTF8String);
+            [self updateUIForClient:sender];
+        }
+        return YES;
+    }
+
     if (!translated.valid || translated.passThrough) {
         // Anything the keyboard layout produces that is not plain ASCII — ⌥,
         // giving ≤, ⌥; giving … — lands here, as do ⌘ shortcuts.
@@ -373,6 +400,8 @@ AriCandidateWindow *sharedCandidateWindow() {
             if (pending.size() > 1) {
                 _alternatives = std::move(pending);
                 _adjudicating = -1;
+                // Keys still being typed show as themselves: the all-English
+                // reading, which is first.
                 _adjudicationHighlight = 0;
                 [self updateUIForClient:sender];
             }
@@ -384,11 +413,14 @@ AriCandidateWindow *sharedCandidateWindow() {
         const int target = self.buffer.caretChar();
         auto alternatives = self.buffer.boundaryAlternatives(target);
         if (alternatives.size() > 1) {
+            // Open on the reading already on screen, so Enter (or a stray
+            // ↑ then Enter) leaves the text alone instead of turning it into
+            // English for good.
+            const int shown =
+                self.buffer.displayedBoundaryAlternative(target, alternatives);
             _alternatives = std::move(alternatives);
             _adjudicating = target;
-            // Each character is a fresh question; the row reached on the last
-            // one means nothing here.
-            _adjudicationHighlight = 0;
+            _adjudicationHighlight = std::max(shown, 0);
             [self updateUIForClient:sender];
             return YES;
         }
@@ -877,6 +909,14 @@ AriCandidateWindow *sharedCandidateWindow() {
 }
 
 - (void)applyAlternative:(int)choice client:(id)sender {
+    // Keys still being typed already read as the first (all-English) choice;
+    // choosing it is the same as Esc and must not freeze them.
+    if (_adjudicating < 0 && choice == 0) {
+        _alternatives.clear();
+        _adjudicationHighlight = 0;
+        [self updateUIForClient:sender];
+        return;
+    }
     if (_adjudicating < 0) {
         // Asked about keys still being typed: freeze them now, onto the caret.
         self.buffer.handleKey(fcitx::Key(FcitxKey_Left));
@@ -888,14 +928,32 @@ AriCandidateWindow *sharedCandidateWindow() {
         choice >= 0 && choice < static_cast<int>(_alternatives.size()) &&
         !_alternatives[static_cast<std::size_t>(choice)].chinese.empty() &&
         isBopomofo(_alternatives[static_cast<std::size_t>(choice)].chinese);
+    const auto rememberedBefore = Buffer::rememberedBoundaries();
     const KeyResult result =
         symbols ? self.buffer.chooseBoundaryAlternative(_adjudicating, choice)
                 : self.buffer.chooseAndRememberBoundaryAlternative(_adjudicating,
                                                                    choice);
+    const auto rememberedAfter = Buffer::rememberedBoundaries();
     _alternatives.clear();
     _adjudicationHighlight = 0;
     [self applyResult:result client:sender];
     [self updateUIForClient:sender];
+    // A remembered reading changes what these keys produce from now on, so
+    // say so, and say where to undo it.
+    for (const auto &entry : rememberedAfter) {
+        const bool isNew = std::none_of(
+            rememberedBefore.begin(), rememberedBefore.end(), [&](const auto &old) {
+                return old.keys == entry.keys && old.english == entry.english &&
+                       old.chinese == entry.chinese;
+            });
+        if (isNew) {
+            [self showTransient:toNSString("已記住：" + entry.keys + " → " +
+                                           entry.english + entry.chinese +
+                                           "（↑ 可改，設定頁可刪）")
+                         client:sender];
+            break;
+        }
+    }
 }
 
 // A key Ari does not claim goes to the application. If a composition is on
@@ -924,6 +982,14 @@ AriCandidateWindow *sharedCandidateWindow() {
 
 - (int)ari_candidatesOnPage {
     return static_cast<int>(self.buffer.candidates().size());
+}
+
+- (NSArray<NSString *> *)ari_candidateTexts {
+    NSMutableArray<NSString *> *texts = [NSMutableArray array];
+    for (const auto &text : self.buffer.candidates()) {
+        [texts addObject:toNSString(text)];
+    }
+    return texts;
 }
 
 - (int)ari_candidatePageCount {

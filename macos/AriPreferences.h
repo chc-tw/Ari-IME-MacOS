@@ -50,6 +50,12 @@ struct Preferences {
     // ↑ on a page's first candidate and ↓ on its last wrap within the page,
     // rather than moving to the previous or next page. On by default.
     bool candidateWrapWithinPage = true;
+    // ↓ offers a phrase from its last character (服飾 with the caret after 飾)
+    // instead of its first. On by default.
+    bool phraseChoiceRearward = true;
+    // ↑ offers any run of 注音 keys as symbols (cc → ㄏㄏ), which also opens
+    // the list on English words. On by default.
+    bool keySymbolsReading = true;
     ArrowStyle arrowStyle = ArrowStyle::MacOS;
 };
 

@@ -2229,9 +2229,49 @@ void Buffer::buildSelCands() {
                            });
     };
 
+    if (phraseChoiceRearward_) {
+        // Phrases that END at the selected character: for each length, park at
+        // where such a phrase would start and walk down to that exact length.
+        // libchewing lists the intervals starting at its cursor longest first,
+        // so the existing (startOffset, down, idx) pick path applies unchanged.
+        // The selected character's own single-character list follows.
+        constexpr int kLongestPhrase = 8;
+        for (int len = std::min(targetOffset + 1, kLongestPhrase); len >= 2;
+             --len) {
+            const int start = targetOffset - len + 1;
+            parkAt(start);
+            if (!zhuyin_.openCandidates()) {
+                continue;
+            }
+            for (int down = 0; down < ari_ime::kMaxSyllables; ++down) {
+                const int total = zhuyin_.candidateCount();
+                const int charLen =
+                    total > 0 ? utf8Count(zhuyin_.candidate(0)) : 0;
+                if (charLen < len) {
+                    break; // no phrase of this length starts here
+                }
+                if (charLen == len) {
+                    for (int i = 0; i < total; ++i) {
+                        std::string text = zhuyin_.candidate(i);
+                        if (utf8Count(text) == len &&
+                            !alreadyAdded(text, start)) {
+                            selCands_.push_back(
+                                {text, text, down, i, start,
+                                 static_cast<int>(selCands_.size())});
+                        }
+                    }
+                    break;
+                }
+                zhuyin_.handleDown();
+            }
+            zhuyin_.closeCandidates();
+        }
+    }
+
     // Query only phrase intervals that start at the selected character and can
     // extend toward following characters. Do not inspect preceding cells: when
-    // the target is B in A+B+C, candidates may cover B+C but never A+B.
+    // the target is B in A+B+C, candidates may cover B+C but never A+B. In
+    // rearward mode only the single-character interval is taken from here.
     const int startOffset = targetOffset;
     parkAt(startOffset);
     if (zhuyin_.openCandidates()) {
@@ -2242,7 +2282,8 @@ void Buffer::buildSelCands() {
                 break;
             }
             int charLen = utf8Count(zhuyin_.candidate(0));
-            if (startOffset + charLen > targetOffset) {
+            if (startOffset + charLen > targetOffset &&
+                (!phraseChoiceRearward_ || charLen <= 1)) {
                 for (int i = 0; i < total; ++i) {
                     std::string text = zhuyin_.candidate(i);
                     if (startOffset + utf8Count(text) <= targetOffset ||
@@ -3681,11 +3722,11 @@ Buffer::boundaryAlternatives(int idx) const {
     // keys. Both have to be askable, or a remembered answer could never be
     // changed: by the time the question is asked the answer is already applied.
     const bool literalToken = !cells_[idx].chinese;
-    if (literalToken && !isLiteralKeyCell(cells_[idx])) {
+    const int start = adjudicationStart(idx);
+    if (literalToken && start == tokenStart(idx) &&
+        !isLiteralKeyCell(cells_[idx])) {
         return alternatives;
     }
-
-    const int start = tokenStart(idx);
     std::string keys;
     for (int i = start; i < idx; ++i) {
         keys += cells_[i].text;
@@ -3789,6 +3830,33 @@ Buffer::alternativesForKeys(const std::string &keys) const {
             alternatives.push_back({{}, symbols, keys});
         }
     }
+
+    // Any run of 注音 keys, read key by key, is a reading too: ㄏㄏ for cc has
+    // no syllable to come from (D16). Every key must be one; a run with a key
+    // that is not (or a capital kept English) is not offered half-converted.
+    if (keySymbolsReading_) {
+        std::string symbols;
+        for (char c : keys) {
+            const std::string key(1, c);
+            std::string symbol;
+            if (bodyIsPeelable(key) &&
+                (ari_ime::zhuyinSlot(c) >= 0 || ari_ime::isToneKey(c))) {
+                symbol = bopomofoForKeys(key);
+            }
+            if (symbol.empty()) {
+                symbols.clear();
+                break;
+            }
+            symbols += symbol;
+        }
+        const bool offered = std::any_of(
+            alternatives.begin(), alternatives.end(), [&](const auto &alt) {
+                return alt.english.empty() && alt.chinese == symbols;
+            });
+        if (!symbols.empty() && !offered) {
+            alternatives.push_back({{}, symbols, keys});
+        }
+    }
     return alternatives;
 }
 
@@ -3799,7 +3867,7 @@ KeyResult Buffer::chooseBoundaryAlternative(int idx, int choice) {
     }
     const BoundaryAlternative &chosen = alternatives[static_cast<std::size_t>(choice)];
 
-    const int start = tokenStart(idx);
+    const int start = adjudicationStart(idx);
 
     std::vector<Cell> replacement;
     for (char c : chosen.english) {
@@ -3954,8 +4022,16 @@ KeyResult Buffer::chooseAndRememberBoundaryAlternative(int idx, int choice) {
     if (choice < 0 || choice >= static_cast<int>(alternatives.size())) {
         return {false, false, {}, false};
     }
-    const BoundaryAlternative &chosen = alternatives[static_cast<std::size_t>(choice)];
-    if (boundaryMemoryAllowed_ && validBoundaryField(chosen.keys) &&
+    if (choice == displayedBoundaryAlternative(idx, alternatives)) {
+        // "Keep it as it is" is not a decision worth remembering. Writing it
+        // made a stray ↑ then Enter pin the keys to English for good (D15).
+        return {true, false, {}, true};
+    }
+    const BoundaryAlternative chosen = alternatives[static_cast<std::size_t>(choice)];
+    // Apply before writing: the token's extent can depend on the remembered
+    // answer being replaced (adjudicationStart), so it must still be there.
+    const KeyResult result = chooseBoundaryAlternative(idx, choice);
+    if (result.handled && boundaryMemoryAllowed_ && validBoundaryField(chosen.keys) &&
         validBoundaryField(chosen.english) && validBoundaryField(chosen.chinese)) {
         auto entries = rememberedBoundaries();
         entries.erase(std::remove_if(entries.begin(), entries.end(),
@@ -3966,13 +4042,72 @@ KeyResult Buffer::chooseAndRememberBoundaryAlternative(int idx, int choice) {
         entries.push_back({chosen.keys, chosen.english, chosen.chinese});
         writeBoundaries(entries);
     }
-    return chooseBoundaryAlternative(idx, choice);
+    return result;
 }
 
 bool Buffer::isLiteralKeyCell(const Cell &cell) {
     return !cell.chinese && cell.text.size() == 1 &&
            static_cast<unsigned char>(cell.text[0]) < 0x80 &&
            std::isalnum(static_cast<unsigned char>(cell.text[0]));
+}
+
+int Buffer::adjudicationStart(int idx) const {
+    if (idx >= 0 && idx < static_cast<int>(cells_.size()) &&
+        !cells_[idx].chinese) {
+        // Longest remembered all-English run of keys ending exactly here.
+        int best = -1;
+        for (const auto &entry : rememberedBoundaries()) {
+            if (!entry.chinese.empty() || entry.english != entry.keys ||
+                entry.keys.size() > static_cast<std::size_t>(idx) + 1) {
+                continue;
+            }
+            const int start = idx + 1 - static_cast<int>(entry.keys.size());
+            std::string spelled;
+            for (int i = start; i <= idx; ++i) {
+                if (cells_[i].chinese || cells_[i].text.size() != 1) {
+                    spelled.clear();
+                    break;
+                }
+                spelled += cells_[i].text;
+            }
+            if (spelled == entry.keys && (best < 0 || start < best)) {
+                best = start;
+            }
+        }
+        if (best >= 0) {
+            return std::min(best, tokenStart(idx));
+        }
+    }
+    return tokenStart(idx);
+}
+
+int Buffer::displayedBoundaryAlternative(
+    int idx, const std::vector<BoundaryAlternative> &alternatives) const {
+    if (idx < 0 || idx >= static_cast<int>(cells_.size())) {
+        return -1;
+    }
+    const int start = adjudicationStart(idx);
+    std::string english;
+    for (int i = start; i < idx; ++i) {
+        english += cells_[i].text;
+    }
+    std::string chinese;
+    if (cells_[idx].chinese) {
+        chinese = cells_[idx].text;
+    } else {
+        english += cells_[idx].text;
+    }
+    for (std::size_t i = 0; i < alternatives.size(); ++i) {
+        const BoundaryAlternative &alt = alternatives[i];
+        if (alt.english != english) {
+            continue;
+        }
+        if (alt.chinese == chinese ||
+            (containsHanCharacter(alt.chinese) && containsHanCharacter(chinese))) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
 }
 
 int Buffer::tokenStart(int idx) const {

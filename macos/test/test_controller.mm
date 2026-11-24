@@ -526,6 +526,68 @@ int main() {
                 removeObjectForKey:@"CandidateWrapWithinPage"];
         }
 
+        { // ↓ after the last character of a phrase offers the phrase itself:
+          // 服飾 and 服侍 are re-picked without moving back to 服.
+            Session s;
+            s.type(@"zj6g4");             // ㄈㄨˊ ㄕˋ
+            s.send(kVK_DownArrow, @"");
+            NSArray<NSString *> *page = [s.controller ari_candidateTexts];
+            check([page containsObject:@"服飾"] && [page containsObject:@"服侍"],
+                  "↓ on the phrase's last character lists 服飾 and 服侍");
+            NSString *other = [s.client.markedText isEqualToString:@"服飾"]
+                                  ? @"服侍" : @"服飾";
+            const NSUInteger at = [page indexOfObject:other];
+            for (NSUInteger i = 0; i < at; ++i) s.send(kVK_DownArrow, @"");
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.markedText, other, "picking it rewrites both characters");
+            s.send(kVK_LeftArrow, @"");   // caret between 服 and 飾
+            s.send(kVK_DownArrow, @"");   // on 服, the first character
+            page = [s.controller ari_candidateTexts];
+            check(![page containsObject:@"服飾"] && ![page containsObject:@"服侍"],
+                  "the first character offers single characters only");
+        }
+
+        { // With the setting off, the phrase is offered at its first character.
+            [NSUserDefaults.standardUserDefaults setBool:NO
+                                                  forKey:@"PhraseChoiceRearward"];
+            Session s;
+            s.type(@"zj6g4");
+            s.send(kVK_DownArrow, @"");
+            NSArray<NSString *> *page = [s.controller ari_candidateTexts];
+            check(![page containsObject:@"服飾"], "off: not on the last character");
+            s.send(kVK_Escape, @"");
+            s.send(kVK_LeftArrow, @"");
+            s.send(kVK_DownArrow, @"");
+            page = [s.controller ari_candidateTexts];
+            check([page containsObject:@"服飾"], "off: on the first character");
+            [NSUserDefaults.standardUserDefaults
+                removeObjectForKey:@"PhraseChoiceRearward"];
+        }
+
+        { // ⌥ + digit types a full-width digit while punctuation is Chinese:
+          // straight to the application with nothing composed, into the
+          // composition otherwise.
+            Session s;
+            check(s.send(kVK_ANSI_1, @"¡", NSEventModifierFlagOption),
+                  "⌥1 is handled with Chinese punctuation");
+            checkEq(s.client.committed, @"１", "⌥1 commits a full-width 1");
+            s.type(@"su3");
+            s.send(kVK_ANSI_2, @"™", NSEventModifierFlagOption);
+            checkEq(s.client.markedText, @"你２", "⌥2 joins the composition");
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.committed, @"１你２", "and commits with it");
+        }
+
+        { // With English punctuation the layout's own ⌥ character is kept.
+            [NSUserDefaults.standardUserDefaults setObject:@"English"
+                                                    forKey:@"PunctuationStyle"];
+            Session s;
+            check(!s.send(kVK_ANSI_1, @"¡", NSEventModifierFlagOption),
+                  "⌥1 goes to the application with English punctuation");
+            checkEq(s.client.committed, @"", "and Ari inserts nothing");
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:@"PunctuationStyle"];
+        }
+
         { // Plain Return picks and returns the caret to the end.
             Session s;
             s.type(@"su3cl3");
@@ -609,6 +671,53 @@ int main() {
 
         {
             forgetEverything();
+          // The list opens on the reading already shown, so ↑ then Enter keeps
+          // the text and remembers nothing. It used to open on the all-English
+          // reading, and that one stray Enter made 2u/4 English for good.
+            Session s;
+            s.type(@"2u/4");
+            NSString *shown = s.client.markedText;
+            check(shown.length == 1, "2u/4 reads as one character");
+            s.send(kVK_UpArrow, @"");
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.markedText, shown, "↑ then Enter keeps the character");
+            check(Buffer::rememberedBoundaries().empty(), "and remembers nothing");
+        }
+
+        {
+            forgetEverything();
+          // A remembered all-English answer can be changed from the keyboard,
+          // even when its keys include / (ㄥ), which is not a letter or digit.
+            {
+                Session s;
+                s.type(@"2u/4");
+                s.send(kVK_UpArrow, @"");
+                s.type(@"1");
+                checkEq(s.client.markedText, @"2u/4", "1 picks the keys as typed");
+                s.send(kVK_Return, @"\r");
+            }
+            NSString *chinese = nil;
+            {
+                Session s;
+                s.type(@"2u/4");
+                checkEq(s.client.markedText, @"2u/4", "the answer is remembered");
+                s.send(kVK_UpArrow, @"");
+                s.type(@"3");
+                chinese = s.client.markedText;
+                check(chinese.length == 1 && ![chinese isEqualToString:@"4"],
+                      "↑ on the remembered keys offers the character again");
+                s.send(kVK_Return, @"\r");
+            }
+            {
+                Session s;
+                s.type(@"2u/4");
+                checkEq(s.client.markedText, chinese, "and the new answer sticks");
+            }
+            forgetEverything();
+        }
+
+        {
+            forgetEverything();
           // ↑ steps onto the character it asks about, but the caret stays
           // after it while the list is open and after Esc closes it.
             Session s;
@@ -627,6 +736,7 @@ int main() {
         }
 
         { // ↑ with nothing to ask about leaves the caret where it was.
+            [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"KeySymbolsReading"];
             Session s;
             s.type(@"hello");
             s.send(kVK_LeftArrow, @"");
@@ -637,6 +747,25 @@ int main() {
                         [NSString stringWithFormat:@"%d", before],
                         "↑ on plain English does not move the caret");
             }
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:@"KeySymbolsReading"];
+        }
+
+        { // With key symbols on, plain English is askable too; the caret on
+          // screen stays put while the list is open, and Esc changes nothing.
+            Session s;
+            s.type(@"hello");
+            s.send(kVK_LeftArrow, @"");
+            const int before = s.caret();
+            const NSUInteger shown = s.client.markedSelection.location;
+            s.send(kVK_UpArrow, @"");
+            checkEq([NSString stringWithFormat:@"%lu",
+                                (unsigned long)s.client.markedSelection.location],
+                    [NSString stringWithFormat:@"%lu", (unsigned long)shown],
+                    "the caret stays put while ↑ asks about English");
+            s.send(kVK_Escape, @"\x1b");
+            checkEq(s.client.markedText, @"hello", "Esc leaves the English alone");
+            checkEq([NSString stringWithFormat:@"%d", s.caret()],
+                    [NSString stringWithFormat:@"%d", before], "and the caret too");
         }
 
         {
@@ -650,6 +779,44 @@ int main() {
             s.send(kVK_UpArrow, @"");
             s.type(@"1");
             checkEq(s.client.markedText, @"su3", "↑ then 1 gives the keys back");
+        }
+
+        {
+            forgetEverything();
+          // Any run of 注音 keys can become its symbols, syllable or not: cc
+          // is ㄏㄏ in one step instead of one key at a time.
+            Session s;
+            s.type(@"cc");
+            s.send(kVK_UpArrow, @"");
+            s.send(kVK_UpArrow, @"");     // from the keys (shown) to the last entry
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.markedText, @"ㄏㄏ", "↑ turns cc into ㄏㄏ");
+            check(Buffer::rememberedBoundaries().empty(), "symbols are not remembered");
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.committed, @"ㄏㄏ", "and they commit as typed");
+        }
+
+        {
+            forgetEverything();
+          // A run starting with a tone key reads as its mark first, and is
+          // still treated as symbols, not remembered.
+            Session s;
+            s.type(@"3c");
+            s.send(kVK_UpArrow, @"");
+            s.send(kVK_UpArrow, @"");
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.markedText, @"ˇㄏ", "3c reads key by key as ˇㄏ");
+            check(Buffer::rememberedBoundaries().empty(), "and is not remembered");
+        }
+
+        { // With the setting off, cc has nothing to offer and stays as typed.
+            [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"KeySymbolsReading"];
+            Session s;
+            s.type(@"cc");
+            s.send(kVK_UpArrow, @"");
+            s.send(kVK_Return, @"\r");
+            checkEq(s.client.committed, @"cc", "off: ↑ offers nothing for cc");
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:@"KeySymbolsReading"];
         }
 
         { // Plain English has no reading to choose between, so ↑ falls through.
@@ -692,7 +859,7 @@ int main() {
             Session s;
             s.type(@"su3");
             s.send(kVK_UpArrow, @"");
-            s.send(kVK_UpArrow, @"");     // wraps to the last entry, the symbols
+            s.send(kVK_DownArrow, @"");   // from 你 (shown) to the last entry, the symbols
             s.send(kVK_Return, @"\r");
             checkEq(s.client.markedText, @"ㄋㄧˇ", "su3 offers ㄋㄧˇ last");
             s.send(kVK_Return, @"\r");

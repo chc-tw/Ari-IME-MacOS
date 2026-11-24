@@ -63,6 +63,8 @@ NSTextField *hint(NSString *text) {
     NSButton *_uppercaseIsEnglish;
     NSButton *_caretStaysAfterPick;
     NSButton *_candidateWrapWithinPage;
+    NSButton *_phraseChoiceRearward;
+    NSButton *_keySymbolsReading;
     NSButton *_autoLearn;
     NSButton *_showStatusLine;
     NSButton *_spaceCandidateMode;
@@ -124,6 +126,8 @@ NSTextField *hint(NSString *text) {
     _uppercaseIsEnglish = [self checkboxWithTitle:@"大寫字母一律當英文"];
     _caretStaysAfterPick = [self checkboxWithTitle:@"⌘Return 選字後游標留在原地"];
     _candidateWrapWithinPage = [self checkboxWithTitle:@"候選 ↑↓ 在同一頁內循環"];
+    _phraseChoiceRearward = [self checkboxWithTitle:@"在詞的最後一個字選詞"];
+    _keySymbolsReading = [self checkboxWithTitle:@"↑ 可把任何注音鍵轉成注音符號"];
 
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[ label(@"鍵盤配列"), _layout ],
@@ -146,6 +150,12 @@ NSTextField *hint(NSString *text) {
         @[ [NSGridCell emptyContentView], _candidateWrapWithinPage ],
         @[ [NSGridCell emptyContentView],
            hint(@"第一個候選按 ↑ 跳到本頁最後一個，最後一個按 ↓ 回到本頁第一個；關閉則換頁。") ],
+        @[ [NSGridCell emptyContentView], _phraseChoiceRearward ],
+        @[ [NSGridCell emptyContentView],
+           hint(@"例如游標在「飾」後面按 ↓ 就能在服飾、服侍之間選；關閉則要移到詞的第一個字。") ],
+        @[ [NSGridCell emptyContentView], _keySymbolsReading ],
+        @[ [NSGridCell emptyContentView],
+           hint(@"例如打 cc 按 ↑ 選 ㄏㄏ。開啟後在英文上按 ↑ 也會出現選單，按 Esc 或 Enter 不會改字。") ],
     ]];
     grid.columnSpacing = 10;
     grid.rowSpacing = 6;
@@ -371,6 +381,11 @@ NSTextField *hint(NSString *text) {
     _candidateWrapWithinPage.state = preferences.candidateWrapWithinPage
                                          ? NSControlStateValueOn
                                          : NSControlStateValueOff;
+    _phraseChoiceRearward.state = preferences.phraseChoiceRearward
+                                      ? NSControlStateValueOn
+                                      : NSControlStateValueOff;
+    _keySymbolsReading.state = preferences.keySymbolsReading ? NSControlStateValueOn
+                                                             : NSControlStateValueOff;
     _autoLearn.state = preferences.autoLearn ? NSControlStateValueOn
                                              : NSControlStateValueOff;
     _showStatusLine.state = preferences.showStatusLine ? NSControlStateValueOn
@@ -412,6 +427,10 @@ NSTextField *hint(NSString *text) {
                forKey:@"CaretStaysAfterPick"];
     [defaults setBool:_candidateWrapWithinPage.state == NSControlStateValueOn
                forKey:@"CandidateWrapWithinPage"];
+    [defaults setBool:_phraseChoiceRearward.state == NSControlStateValueOn
+               forKey:@"PhraseChoiceRearward"];
+    [defaults setBool:_keySymbolsReading.state == NSControlStateValueOn
+               forKey:@"KeySymbolsReading"];
     [defaults setBool:_autoLearn.state == NSControlStateValueOn forKey:@"AutoLearn"];
     [defaults setBool:_showStatusLine.state == NSControlStateValueOn
                forKey:@"ShowStatusLine"];

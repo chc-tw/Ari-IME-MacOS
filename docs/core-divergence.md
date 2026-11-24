@@ -575,6 +575,87 @@ FAIL backspace restores tone-before-final keys in typed order got="" want="240"
 
 ---
 
+## D14 — 在詞的最後一個字選詞（後方選詞）
+
+**檔案**：`src/buffer.{h,cpp}`（`setPhraseChoiceRearward()`、`buildSelCands()`）
+**類型**：新增設定（預設關閉 = 上游行為）
+**衝擊**：`test_buffer` 零變動（核心預設不變）；`macos/test/test_controller.mm` 加兩個情境
+
+### 問題（2026-11-23 使用者回報）
+
+上游只列「從選取字開始往後」的詞，所以要在服飾／服侍之間選，游標得移回「服」。
+剛打完的詞通常游標就在最後一個字後面，使用者希望在那裡就能選詞（新酷音的後方選詞）。
+
+### 改動
+
+- `setPhraseChoiceRearward(bool)`：預設 `false`，上游行為不變。
+- `buildSelCands()`：開啟時，對每個長度 L（2–8）把 chewing 游標停在
+  `target - L + 1`，往下走到剛好長度 L 的區間，收進候選；候選帶的
+  `startOffset` 就是詞的開頭，所以選字（`pickCandidate`）、使用者記憶、
+  鎖定都沿用原本路徑。選取字自己的單字候選照舊；從選取字往後延伸的詞不再列出。
+- macOS 前端：偏好設定「在詞的最後一個字選詞」，預設開啟。
+
+**合併風險**：低。上游若改 `buildSelCands()` 的區間查詢，需確認後方選詞的區塊仍在。
+
+---
+
+## D15 — 中英裁決不再被一個誤按的 Enter 永久鎖成英文
+
+**檔案**：`src/buffer.{h,cpp}`（新增 `displayedBoundaryAlternative()`、`adjudicationStart()`；
+改 `boundaryAlternatives()`、`chooseBoundaryAlternative()`、`chooseAndRememberBoundaryAlternative()`）
+**類型**：錯誤修正 + 新增 API（D13 的延伸）
+**衝擊**：`test_buffer` 零變動；`macos/test/test_controller.mm` 加兩個情境、調整一個
+
+### 問題（2026-11-24 使用者回報）
+
+「訂」（`2u/4`）怎麼打都變回 `2u/4`。`boundaries.tsv` 裡有 `2u/4 → 2u/4`（全英文）。三個問題疊在一起：
+
+1. ↑ 選單一律從「全英文」那一項開始，所以 ↑ 後按 Enter（或 1）就把這串鍵永久記成英文。
+2. 選「目前畫面上已經是的那個讀法」也會寫進記憶。
+3. 記成英文後，那些鍵變成文字格；`isLiteralKeyCell()` 只認英數，`/`（ㄥ）把 token 切斷，
+   ↑ 只看到 `4`，選單不出現，鍵盤上沒有辦法改回來，只能去設定頁刪除。
+4. 改回中文時，`chooseAndRememberBoundaryAlternative()` 先改記憶再套用，套用時 token
+   範圍（依賴舊記憶）已經變了，選擇落空。
+
+### 改動
+
+- `displayedBoundaryAlternative()`：找出畫面上目前的讀法（同樣切法、換了同音字也算）。
+  macOS 前端 ↑ 選單預設停在這一項；`chooseAndRememberBoundaryAlternative()` 選到它時
+  什麼都不改、不寫記憶。還在打的鍵（pending）選第一項等同 Esc，不凍結。
+- `adjudicationStart()`：文字格若剛好拼出某個「全英文」記憶的鍵（可含 `, . / ; -`），
+  整串當成一個 token，`boundaryAlternatives()` 與 `chooseBoundaryAlternative()` 共用。
+- `chooseAndRememberBoundaryAlternative()`：先套用、成功才寫記憶。
+- macOS 前端：寫入新記憶時顯示「已記住：鍵 → 結果（↑ 可改，設定頁可刪）」。
+
+**合併風險**：低～中。上游若改 `tokenStart()` 或裁決記憶，需確認 `adjudicationStart()` 仍被使用。
+
+---
+
+## D16 — ↑ 可把任何注音鍵轉成注音符號
+
+**檔案**：`src/buffer.{h,cpp}`（`setKeySymbolsReading()`、`alternativesForKeys()`）
+**類型**：新增設定（預設關閉 = 上游行為）
+**衝擊**：`test_buffer` 零變動；`macos/test/test_controller.mm` 加四個情境、一個改成在設定關閉時跑
+
+### 問題（2026-11-24 使用者回報）
+
+只有能讀成音節（含不完整的）的鍵才有注音符號讀法。要打 ㄏㄏ 得 `c` → ↑ 選 ㄏ → 再一次，
+長串注音符號只能一個一個轉。
+
+### 改動
+
+- `setKeySymbolsReading(bool)`：預設 `false`。
+- `alternativesForKeys()`：開啟時，若每個鍵都是注音鍵（`zhuyinSlot() >= 0` 或聲調鍵，且不是
+  被當成英文的大寫），逐鍵轉成符號（`cc` → ㄏㄏ、`3c` → ˇㄏ），加在最後；與既有符號讀法相同則不重複。
+- macOS 前端：偏好設定「↑ 可把任何注音鍵轉成注音符號」，預設開啟。代價是在英文字上按 ↑
+  也會出現選單；選單停在畫面上的讀法（D15），Esc / Enter 不改字。`isBopomofo()` 也認聲調符號開頭，
+  逐鍵讀法不寫進裁決記憶。
+- 仍未涵蓋：還在打的尾端若含 `, . / ; -`，`pendingAlternatives()` 照舊不提供。
+
+**合併風險**：低。
+
+---
+
 ## 合併記錄
 
 ### 2026-11-21 — 上游 2.6.3 → 2.8.0（`43718d1`）

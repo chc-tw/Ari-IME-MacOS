@@ -32,7 +32,11 @@ divergent_symbols=(
     runReadings_         # D8 (every live-run reset must clear runOverrides_)
     forgetHighlightedCandidate # D8
     boundaryAlternatives # D13
-    chooseBoundaryAlternative # D13
+    chooseBoundaryAlternative # D13, D15
+    chooseAndRememberBoundaryAlternative # D15
+    tokenStart # D15
+    alternativesForKeys # D13, D16
+    buildSelCands # D14
     "Zhuyin::Zhuyin"     # D9
     resetAll             # D9
     addUserPhrase        # D9
