@@ -685,6 +685,71 @@ FAIL backspace restores tone-before-final keys in typed order got="" want="240"
 
 ---
 
+## D18 — macOS 只用 chewing.dat 一本使用者字典（平台層）
+
+**檔案**：`macos/user_data.mm`（`userDictionaryPath()`、`ensureUserDataDir()`；`src/` 未改動）、`macos/release.sh`
+**類型**：錯誤修正，與上游刻意分歧
+**衝擊**：`test_buffer` 零變動；上游 `test_user_data` 有 3 項預期失敗（見下）；新增 `macos/test/test_user_dictionary.mm`
+
+### 問題（2026-11-25 使用者回報：朋友的自訂詞加了也選不到）
+
+libchewing 0.13 把**第一個**載入的使用者字典當成寫入與列出的那本（`Layered::new`）。
+它會先在資料夾裡找到 `chewing.dat`，上游明確傳入的 `userdict.dat` 排在後面。全新安裝時：
+第一個 context 開啟時還沒有 `chewing.dat`，於是寫進 `userdict.dat`；接著遷移程式把當時
+空的 `userdict.dat` 複製成 `chewing.dat`，之後的 context 都寫 `chewing.dat`。兩邊各存一半，
+`userdict.dat` 裡的詞在新程序裡既選不到、也列不出。從舊資料升級上來的機器（兩檔早已一致）不會發生。
+
+### 改動
+
+- `userDictionaryPath()` 回傳 `chewing.dat`。libchewing 發現明確路徑的檔名就是預設的
+  `chewing.dat` 時會自己去重，只載入一本，靠的是公開行為而非載入順序。
+  （先試過保留 `userdict.dat`、改成搶先建好 `chewing.dat`，能修但依賴內部順序，捨棄。）
+- 只有 `userdict.dat` 的舊資料：照舊複製成 `chewing.dat`。
+- 已經分家的安裝：每個資料夾每個程序檢查一次，把只在 `userdict.dat` 的詞加進 `chewing.dat`，
+  原檔改名為 `userdict.dat.merged-<時間>.bak`（避免重複合併、或把刪掉的詞帶回來）。
+
+### 上游測試的預期衝突
+
+`test_user_data` 的 `test_legacy_dictionary_is_seeded_for_libchewing` 假設學習會寫出
+`userdict.dat`，再刪掉 `chewing.dat` 看能否從它複製回來。macOS 不再產生 `userdict.dat`，
+所以這 3 項必然失敗：
+
+- `migration setup has legacy userdict.dat`
+- `migration seeds chewing.dat`
+- `migration preserves userdict.dat`
+
+`macos/release.sh` 只容許這 3 項；`test_user_data` 其他任何失敗都會擋下發布。
+
+**合併風險**：低。只在 macOS 平台檔；Linux 的 `src/user_data.cpp` 不受影響。上游若改
+`test_user_data` 的遷移測試，需更新 `release.sh` 的允許清單。
+
+---
+
+## D19 — 選字記憶存到硬碟
+
+**檔案**：`src/user_override.h`（`save()`、`load()`，禁止複製）、`src/buffer.cpp`（`userOverrides()`、
+`saveUserOverrides()`、`clearUserOverrides()`）、`macos/user_data.mm`（重設時一併刪除）
+**類型**：行為變更（D8 的延伸；與 McBopomofo 分歧）
+**衝擊**：`test_buffer` 零變動；`macos/test/test_user_override.mm` 加兩個情境
+
+### 問題（2026-11-25 使用者回報）
+
+「重開」每次都變回「蟲開」，手動改了下次還是錯。選字記憶（D8）沿用 McBopomofo，只存在記憶體裡；
+macOS 版每次更新都會重啟輸入法程序，學到的東西全部消失。（記憶依前文區分，換了前文要重新選一次，
+這是刻意的設計，不在此改動範圍。）
+
+### 改動
+
+- 模型可存檔／讀檔：`pick-memory.tsv`，每行一個前文鍵，後接「候選 / 次數 / 最後時間」。時間是
+  `system_clock`，所以重開後衰減照算；讀檔時丟掉已衰減到消失的記憶，最多 500 筆。
+- 第一次用到記憶時在原地讀入；每次選字（`observe` / `revise`）與遺忘後整份寫回（暫存檔 + rename）。
+  `clearUserOverrides()` 與資料重設會刪檔。敏感欄位與關閉自動學習時本來就不記錄，也就不寫檔。
+- 模型禁止複製：`index_` 存的是 `lru_` 的 iterator，複製後會指向原物件（實作時真的踩到）。
+
+**合併風險**：低～中。上游若改 `userOverrides()` 或 `UserOverrideModel` 的內部結構，需同步存檔格式。
+
+---
+
 ## 合併記錄
 
 ### 2026-11-21 — 上游 2.6.3 → 2.8.0（`43718d1`）

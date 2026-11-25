@@ -23,9 +23,56 @@ namespace {
 // One short-term pick memory for the whole process, shared by every input
 // context the way McBopomofo shares its UserOverrideModel: 500 contexts, each
 // decaying with a 1.5-hour half-life.
+std::filesystem::path pickMemoryPath() {
+    const auto dir = ari_ime::userDataDir();
+    return dir.empty() ? std::filesystem::path{} : dir / "pick-memory.tsv";
+}
+
+// The memory outlives the process (D19): it is read back on first use, so an
+// update or restart of the input method no longer forgets every pick.
 ari_ime::UserOverrideModel &userOverrides() {
+    // Loaded in place: the model indexes its own list with iterators, so it
+    // must never be copied or moved once it holds anything.
     static ari_ime::UserOverrideModel model(500, 5400.0);
+    static const bool loaded = [] {
+        if (const auto path = pickMemoryPath(); !path.empty()) {
+            std::ifstream in(path);
+            if (in) {
+                model.load(in, ari_ime::UserOverrideModel::now());
+            }
+        }
+        return true;
+    }();
+    (void)loaded;
     return model;
+}
+
+// Write the memory out after it changes: at most a few hundred short lines,
+// replaced atomically so a crash mid-write cannot leave a torn file.
+void saveUserOverrides() {
+    const auto path = pickMemoryPath();
+    if (path.empty()) {
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::filesystem::path temporary = path;
+    temporary += ".tmp";
+    {
+        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            return;
+        }
+        userOverrides().save(out);
+        if (!out) {
+            std::filesystem::remove(temporary, ec);
+            return;
+        }
+    }
+    std::filesystem::rename(temporary, path, ec);
+    if (ec) {
+        std::filesystem::remove(temporary, ec);
+    }
 }
 
 constexpr int kPunctuationCandidateDown = -2;
@@ -2712,7 +2759,13 @@ bool Buffer::userOverridesAllowed() const {
     return learningAllowed_ && ari_ime::autoLearnEnabled();
 }
 
-void Buffer::clearUserOverrides() { userOverrides().clear(); }
+void Buffer::clearUserOverrides() {
+    userOverrides().clear();
+    std::error_code ec;
+    if (const auto path = pickMemoryPath(); !path.empty()) {
+        std::filesystem::remove(path, ec);
+    }
+}
 
 ari_ime::UserOverrideModel::Walk
 Buffer::chewingWalk(const std::vector<std::string> &readings) {
@@ -2885,11 +2938,13 @@ void Buffer::observeUserOverride(
                 text += chars[static_cast<std::size_t>(k)];
             }
             userOverrides().revise(split.key, split.value, text, now);
+            saveUserOverrides();
             split.value = text;
             return;
         }
     }
     const auto stored = userOverrides().observe(keyed, after, picked, now);
+    saveUserOverrides();
     if (!stored.key.empty() && stored.to - stored.from > after[picked].length) {
         split = {stored.key, stored.value, readings, selRunStart_, stored.from,
                  stored.to};
@@ -3088,6 +3143,9 @@ KeyResult Buffer::forgetHighlightedCandidate() {
 
     const std::string phrase = selCands_[gi].text;
     const int remembered = userOverrides().forget(phrase);
+    if (remembered > 0) {
+        saveUserOverrides();
+    }
     int removed = zhuyin_.forgetUserPhrase(phrase);
     if (removed >= 0) {
         removed += remembered;

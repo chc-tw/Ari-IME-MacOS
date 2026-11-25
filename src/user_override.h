@@ -14,8 +14,13 @@
 // character picked once is preferred in that context for a while, then forgotten.
 
 #include <chrono>
+#include <istream>
+#include <ostream>
+#include <sstream>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
+#include <iterator>
 #include <list>
 #include <map>
 #include <string>
@@ -48,6 +53,9 @@ public:
 
     UserOverrideModel(std::size_t capacity, double halfLifeSeconds)
         : capacity_(capacity), decayExponent_(std::log(0.5) / halfLifeSeconds) {}
+    // index_ holds iterators into lru_; a copy would point into the original.
+    UserOverrideModel(const UserOverrideModel &) = delete;
+    UserOverrideModel &operator=(const UserOverrideModel &) = delete;
 
     // Learn from a pick that turned `before` into `after`. `pickedNode` indexes
     // the node in `after` that the user chose.
@@ -190,6 +198,78 @@ public:
 
     std::size_t size() const { return lru_.size(); }
 
+    // Persistence (D19). One line per context, most recent first:
+    //   key \t candidate \t count \t timestamp [\t candidate \t count \t timestamp ...]
+    // McBopomofo keeps this in memory only; Ari's server restarts on every
+    // update, which erased everything learned, so it is saved and reloaded.
+    static constexpr const char *kHeader = "# Ari IME pick memory v1";
+
+    void save(std::ostream &out) const {
+        out << kHeader << '\n';
+        for (const auto &[key, observation] : lru_) {
+            if (!storable(key)) {
+                continue;
+            }
+            std::string line = key;
+            for (const auto &[candidate, o] : observation.overrides) {
+                if (!storable(candidate)) {
+                    continue;
+                }
+                std::ostringstream fields;
+                fields.precision(17);
+                fields << '\t' << candidate << '\t' << o.count << '\t'
+                       << o.timestamp;
+                line += fields.str();
+            }
+            if (line.size() > key.size()) {
+                out << line << '\n';
+            }
+        }
+    }
+
+    // Replace the memory with what `in` holds, dropping what has already
+    // decayed away by `timestamp`. Returns false on an unknown format.
+    bool load(std::istream &in, double timestamp) {
+        std::string line;
+        if (!std::getline(in, line) || line != kHeader) {
+            return false;
+        }
+        clear();
+        while (std::getline(in, line) && lru_.size() < capacity_) {
+            std::vector<std::string> fields;
+            std::size_t start = 0;
+            for (std::size_t tab; (tab = line.find('\t', start)) != std::string::npos;
+                 start = tab + 1) {
+                fields.push_back(line.substr(start, tab - start));
+            }
+            fields.push_back(line.substr(start));
+            if (fields.size() < 4 || (fields.size() - 1) % 3 != 0 ||
+                fields[0].empty() || index_.count(fields[0])) {
+                continue;
+            }
+            Observation observation;
+            for (std::size_t i = 1; i + 2 < fields.size(); i += 3) {
+                char *end = nullptr;
+                const unsigned long count = std::strtoul(fields[i + 1].c_str(), &end, 10);
+                const double when = std::strtod(fields[i + 2].c_str(), nullptr);
+                if (fields[i].empty() || count == 0 ||
+                    score(1, 1, when, timestamp) == 0.0) {
+                    continue; // malformed, or forgotten by now anyway
+                }
+                Override &o = observation.overrides[fields[i]];
+                o.count = count;
+                o.timestamp = when;
+                observation.count += count;
+            }
+            if (observation.overrides.empty()) {
+                continue;
+            }
+            lru_.emplace_back(fields[0], std::move(observation));
+            index_.emplace(fields[0], std::prev(lru_.end()));
+        }
+        return true;
+    }
+
     static double now() {
         using namespace std::chrono;
         return duration<double>(system_clock::now().time_since_epoch()).count();
@@ -222,6 +302,12 @@ private:
         }
         return static_cast<double>(eventCount) /
                static_cast<double>(totalCount) * decay;
+    }
+
+    static bool storable(const std::string &field) {
+        return !field.empty() && field.find('\t') == std::string::npos &&
+               field.find('\n') == std::string::npos &&
+               field.find('\r') == std::string::npos;
     }
 
     static int totalLength(const Walk &walk) {

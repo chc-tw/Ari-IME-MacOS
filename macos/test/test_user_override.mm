@@ -8,6 +8,8 @@
 // only assumes that 鍾 is not libchewing's choice for the last syllable.
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -177,6 +179,58 @@ void testNothingPersisted() {
     check(!learned, "a pick teaches libchewing nothing");
 }
 
+void testSaveAndLoad() {
+    // The memory survives a restart (D19): what is saved loads back, decay
+    // keeps counting across the gap, and a foreign file is refused.
+    using Model = ari_ime::UserOverrideModel;
+    Model model(10, 5400.0);
+    model.observe("k", "鍾", 100);
+    model.observe("k", "中", 200);
+    model.observe("k", "中", 300);
+    model.observe("j", "重", 400);
+    std::stringstream saved;
+    model.save(saved);
+
+    Model restored(10, 5400.0);
+    std::stringstream copy(saved.str());
+    check(restored.load(copy, 500), "a saved memory loads");
+    check(restored.size() == 2, "with every context");
+    checkEq(restored.suggest("k", 500), "中", "the counts come back");
+    checkEq(restored.suggest("j", 500), "重", "and every pick");
+
+    Model later(10, 5400.0);
+    std::stringstream again(saved.str());
+    later.load(again, 400 + 5400.0 * 21);
+    check(later.size() == 0, "what decayed while it was off is dropped");
+
+    Model refused(10, 5400.0);
+    refused.observe("x", "y", 0);
+    std::stringstream foreign("something else\nk\t鍾\t1\t0\n");
+    check(!refused.load(foreign, 0), "an unknown file is refused");
+    checkEq(refused.suggest("x", 0), "y", "and leaves the memory alone");
+}
+
+void testPickMemoryFile() {
+    const auto path = ari_ime::userDataDir() / "pick-memory.tsv";
+    Buffer::clearUserOverrides();
+    check(!std::filesystem::exists(path), "clearing removes the saved memory");
+    teach("w8_vu/45j/_", "鍾");
+    std::ifstream in(path);
+    std::stringstream text;
+    text << in.rdbuf();
+    check(text.str().find("鍾") != std::string::npos, "a pick is saved to disk");
+    Buffer::clearUserOverrides();
+    check(!std::filesystem::exists(path), "and clearing removes it again");
+    {
+        Buffer sensitive;
+        sensitive.setLearningAllowed(false);
+        type(sensitive, "w8_vu/45j/_");
+        pickLast(sensitive, "鍾");
+        sensitive.handleKey(fcitx::Key(FcitxKey_Return));
+    }
+    check(!std::filesystem::exists(path), "a sensitive field saves nothing");
+}
+
 void testSensitiveField() {
     Buffer::clearUserOverrides();
     const std::string before = typed("w8_vu/45j/_");
@@ -330,6 +384,8 @@ int main() {
         testModel();
         testContext();
         testNothingPersisted();
+        testSaveAndLoad();
+        testPickMemoryFile();
         testSensitiveField();
         testForget();
         testSplitWord();

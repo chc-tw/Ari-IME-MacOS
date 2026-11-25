@@ -37,6 +37,7 @@ divergent_symbols=(
     tokenStart # D15
     alternativesForKeys # D13, D16
     handleSpace # D17
+    clearUserOverrides # D19
     buildSelCands # D14
     "Zhuyin::Zhuyin"     # D9
     resetAll             # D9
