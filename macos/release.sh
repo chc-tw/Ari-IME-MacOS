@@ -63,7 +63,21 @@ cmake --build "$build_dir" -j "$(sysctl -n hw.ncpu)" >/dev/null
 # test_buffer is upstream's suite; it carries the failures this fork expects
 # by design (docs/core-divergence.md), so it is reported but not gating.
 printf '==> tests\n'
-(cd "$build_dir" && ctest -E '^test_buffer$' --output-on-failure) | tail -3
+(cd "$build_dir" && ctest -E '^(test_buffer|test_user_data)$' --output-on-failure) | tail -3
+# test_user_data is upstream's too. On macOS chewing.dat is the one user
+# dictionary (D18), so its userdict.dat migration checks cannot hold; those
+# three are allowed, and any other failure stops the release.
+allowed_user_data='FAIL migration setup has legacy userdict.dat
+FAIL migration seeds chewing.dat
+FAIL migration preserves userdict.dat'
+user_data_failures="$(cd "$build_dir" &&
+    ctest -R '^test_user_data$' --output-on-failure 2>&1 | grep -E '^FAIL' || true)"
+if [[ "$user_data_failures" != "$allowed_user_data" ]]; then
+    printf 'test_user_data failed beyond the known D18 checks:\n%s\n' \
+        "$user_data_failures" >&2
+    exit 1
+fi
+printf 'test_user_data: only the 3 known D18 checks fail\n'
 (cd "$build_dir" && ctest -R '^test_buffer$' --output-on-failure 2>&1) |
     grep -E '^FAIL|checks' || true
 

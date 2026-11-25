@@ -201,6 +201,7 @@ elseif(BUILD_TESTING)
     ari_add_frontend_test(test_mixed_input test_mixed_input.mm)
     ari_add_frontend_test(test_controller test_controller.mm)
     ari_add_frontend_test(test_user_override test_user_override.mm)
+    ari_add_frontend_test(test_user_dictionary test_user_dictionary.mm)
 
     ari_add_core_test(test_buffer test_buffer.cpp)
     ari_add_core_test(test_layout test_layout.cpp)
